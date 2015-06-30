@@ -7,6 +7,7 @@ DUO = $(BINS)/duo
 DUOT = $(BINS)/duo-test
 ESLINT = $(BINS)/eslint
 UGLIFYJS = $(BINS)/uglifyjs
+SED = sed
 
 #
 # Files.
@@ -71,17 +72,27 @@ hooks: $(HOOKS)
 # Build tasks.
 #
 
-# Build analytics.js.
-analytics.js: node_modules $(SRC) package.json
-	@$(DUO) --stdout --standalone Attribution lib/index.js > $@
+# Build attribution.js.
+attribution.js: node_modules $(SRC) package.json
+	@$(DUO) --stdout --standalone Attribution lib/index.js > build/$@
+
+# Build development analytics.js.
+attribution-development.js: build/attribution.js
+	@$(SED) 's/track\.attributionapp\.com/localhost:9292/g' build/attribution.js > build/$@
+
+# Build staging analytics.js.
+attribution-staging.js: build/attribution.js
+	@$(SED) 's/track\.attributionapp\.com/attribution-tracking-staging.herokuapp.com/g' build/attribution.js > build/$@
 
 # Build minified analytics.js.
-analytics.min.js: analytics.js
-	@$(UGLIFYJS) $< --output $@
+attribution.min.js: build/attribution.js
+	@$(UGLIFYJS) $< --output build/$@
+
+all: attribution.js attribution.min.js attribution-staging.js attribution-development.js
 
 # Target for build files.
 # TODO: Document this one better
-$(BUILD): analytics.js analytics.min.js $(TESTS)
+$(BUILD): attribution.js attribution.min.js $(TESTS)
 	@$(DUO) --stdout --development test/tests.js > $(BUILD)
 
 # $(BUILD) shortcut.
