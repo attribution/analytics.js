@@ -73,7 +73,7 @@ hooks: $(HOOKS)
 
 # Build analytics.js.
 analytics.js: node_modules $(SRC) package.json
-	@$(DUO) --stdout --standalone analytics lib/index.js > $@
+	@$(DUO) --stdout --standalone Attribution lib/index.js > $@
 
 # Build minified analytics.js.
 analytics.min.js: analytics.js
