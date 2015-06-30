@@ -1,7 +1,7 @@
 {
-  "name": "analytics",
-  "version": "2.9.1",
-  "main": "analytics.js",
+  "name": "attribution",
+  "version": "0.0.1",
+  "main": "attribution.js",
   "dependencies": {},
   "devDependencies": {}
 }
