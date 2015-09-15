@@ -1,4 +1,12 @@
-(function outer(modules, cache, entries){
+(function umd(require){
+  if (typeof exports === 'object') {
+    module.exports = require('1');
+  } else if (typeof define === 'function' && (define.amd || define.cmd)) {
+    define(function(){ return require('1'); });
+  } else {
+    this['Attribution'] = require('1');
+  }
+})((function outer(modules, cache, entries){
 
   /**
    * Global
@@ -10,11 +18,10 @@
    * Require `name`.
    *
    * @param {String} name
-   * @param {Boolean} jumped
    * @api public
    */
 
-  function require(name, jumped){
+  function require(name){
     if (cache[name]) return cache[name].exports;
     if (modules[name]) return call(name, require);
     throw new Error('cannot find module "' + name + '"');
@@ -34,14 +41,22 @@
     var mod = modules[id];
     var name = mod[2];
     var fn = mod[0];
+    var threw = true;
 
-    fn.call(m.exports, function(req){
-      var dep = modules[id][1][req];
-      return require(dep ? dep : req);
-    }, m, m.exports, outer, modules, cache, entries);
-
-    // expose as `name`.
-    if (name) cache[name] = cache[id];
+    try {
+      fn.call(m.exports, function(req){
+        var dep = modules[id][1][req];
+        return require(dep || req);
+      }, m, m.exports, outer, modules, cache, entries);
+      threw = false;
+    } finally {
+      if (threw) {
+        delete cache[id];
+      } else if (name) {
+        // expose as 'name'.
+        cache[name] = cache[id];
+      }
+    }
 
     return cache[id].exports;
   }
@@ -133,7 +148,7 @@ while (analyticsq && analyticsq.length > 0) {
   if (analytics[method]) analytics[method].apply(analytics, args);
 }
 
-}, {"./analytics":2,"./integrations":3,"../bower.json":4,"each":5}],
+}, {"./analytics":2,"./integrations":3,"each":4,"../bower.json":5}],
 2: [function(require, module, exports) {
 
 /**
@@ -798,8 +813,2621 @@ Analytics.prototype.noConflict = function(){
 };
 
 
-}, {"./cookie":6,"./group":7,"./memory":8,"./normalize":9,"./pageDefaults":10,"./store":11,"./user":12,"emitter":13,"facade":14,"after":15,"bind":16,"callback":17,"clone":18,"debug":19,"defaults":20,"each":5,"is":21,"is-meta":22,"object":23,"event":24,"pick":25,"prevent":26,"querystring":27}],
+}, {"emitter":6,"facade":7,"after":8,"bind":9,"callback":10,"clone":11,"./cookie":12,"debug":13,"defaults":14,"each":4,"./group":15,"is":16,"is-meta":17,"object":18,"./memory":19,"./normalize":20,"event":21,"./pageDefaults":22,"pick":23,"prevent":24,"querystring":25,"./store":26,"./user":27}],
 6: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var index = require('indexof');
+
+/**
+ * Expose `Emitter`.
+ */
+
+module.exports = Emitter;
+
+/**
+ * Initialize a new `Emitter`.
+ *
+ * @api public
+ */
+
+function Emitter(obj) {
+  if (obj) return mixin(obj);
+};
+
+/**
+ * Mixin the emitter properties.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ * @api private
+ */
+
+function mixin(obj) {
+  for (var key in Emitter.prototype) {
+    obj[key] = Emitter.prototype[key];
+  }
+  return obj;
+}
+
+/**
+ * Listen on the given `event` with `fn`.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.on =
+Emitter.prototype.addEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+  (this._callbacks[event] = this._callbacks[event] || [])
+    .push(fn);
+  return this;
+};
+
+/**
+ * Adds an `event` listener that will be invoked a single
+ * time then automatically removed.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.once = function(event, fn){
+  var self = this;
+  this._callbacks = this._callbacks || {};
+
+  function on() {
+    self.off(event, on);
+    fn.apply(this, arguments);
+  }
+
+  fn._off = on;
+  this.on(event, on);
+  return this;
+};
+
+/**
+ * Remove the given callback for `event` or all
+ * registered callbacks.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.off =
+Emitter.prototype.removeListener =
+Emitter.prototype.removeAllListeners =
+Emitter.prototype.removeEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+
+  // all
+  if (0 == arguments.length) {
+    this._callbacks = {};
+    return this;
+  }
+
+  // specific event
+  var callbacks = this._callbacks[event];
+  if (!callbacks) return this;
+
+  // remove all handlers
+  if (1 == arguments.length) {
+    delete this._callbacks[event];
+    return this;
+  }
+
+  // remove specific handler
+  var i = index(callbacks, fn._off || fn);
+  if (~i) callbacks.splice(i, 1);
+  return this;
+};
+
+/**
+ * Emit `event` with the given args.
+ *
+ * @param {String} event
+ * @param {Mixed} ...
+ * @return {Emitter}
+ */
+
+Emitter.prototype.emit = function(event){
+  this._callbacks = this._callbacks || {};
+  var args = [].slice.call(arguments, 1)
+    , callbacks = this._callbacks[event];
+
+  if (callbacks) {
+    callbacks = callbacks.slice(0);
+    for (var i = 0, len = callbacks.length; i < len; ++i) {
+      callbacks[i].apply(this, args);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Return array of callbacks for `event`.
+ *
+ * @param {String} event
+ * @return {Array}
+ * @api public
+ */
+
+Emitter.prototype.listeners = function(event){
+  this._callbacks = this._callbacks || {};
+  return this._callbacks[event] || [];
+};
+
+/**
+ * Check if this emitter has `event` handlers.
+ *
+ * @param {String} event
+ * @return {Boolean}
+ * @api public
+ */
+
+Emitter.prototype.hasListeners = function(event){
+  return !! this.listeners(event).length;
+};
+
+}, {"indexof":28}],
+28: [function(require, module, exports) {
+module.exports = function(arr, obj){
+  if (arr.indexOf) return arr.indexOf(obj);
+  for (var i = 0; i < arr.length; ++i) {
+    if (arr[i] === obj) return i;
+  }
+  return -1;
+};
+}, {}],
+7: [function(require, module, exports) {
+
+var Facade = require('./facade');
+
+/**
+ * Expose `Facade` facade.
+ */
+
+module.exports = Facade;
+
+/**
+ * Expose specific-method facades.
+ */
+
+Facade.Alias = require('./alias');
+Facade.Group = require('./group');
+Facade.Identify = require('./identify');
+Facade.Track = require('./track');
+Facade.Page = require('./page');
+Facade.Screen = require('./screen');
+
+}, {"./facade":29,"./alias":30,"./group":31,"./identify":32,"./track":33,"./page":34,"./screen":35}],
+29: [function(require, module, exports) {
+
+var traverse = require('isodate-traverse');
+var isEnabled = require('./is-enabled');
+var clone = require('./utils').clone;
+var type = require('./utils').type;
+var address = require('./address');
+var objCase = require('obj-case');
+var newDate = require('new-date');
+
+/**
+ * Expose `Facade`.
+ */
+
+module.exports = Facade;
+
+/**
+ * Initialize a new `Facade` with an `obj` of arguments.
+ *
+ * @param {Object} obj
+ */
+
+function Facade (obj) {
+  obj = clone(obj);
+  if (!obj.hasOwnProperty('timestamp')) obj.timestamp = new Date();
+  else obj.timestamp = newDate(obj.timestamp);
+  traverse(obj);
+  this.obj = obj;
+}
+
+/**
+ * Mixin address traits.
+ */
+
+address(Facade.prototype);
+
+/**
+ * Return a proxy function for a `field` that will attempt to first use methods,
+ * and fallback to accessing the underlying object directly. You can specify
+ * deeply nested fields too like:
+ *
+ *   this.proxy('options.Librato');
+ *
+ * @param {String} field
+ */
+
+Facade.prototype.proxy = function (field) {
+  var fields = field.split('.');
+  field = fields.shift();
+
+  // Call a function at the beginning to take advantage of facaded fields
+  var obj = this[field] || this.field(field);
+  if (!obj) return obj;
+  if (typeof obj === 'function') obj = obj.call(this) || {};
+  if (fields.length === 0) return transform(obj);
+
+  obj = objCase(obj, fields.join('.'));
+  return transform(obj);
+};
+
+/**
+ * Directly access a specific `field` from the underlying object, returning a
+ * clone so outsiders don't mess with stuff.
+ *
+ * @param {String} field
+ * @return {Mixed}
+ */
+
+Facade.prototype.field = function (field) {
+  var obj = this.obj[field];
+  return transform(obj);
+};
+
+/**
+ * Utility method to always proxy a particular `field`. You can specify deeply
+ * nested fields too like:
+ *
+ *   Facade.proxy('options.Librato');
+ *
+ * @param {String} field
+ * @return {Function}
+ */
+
+Facade.proxy = function (field) {
+  return function () {
+    return this.proxy(field);
+  };
+};
+
+/**
+ * Utility method to directly access a `field`.
+ *
+ * @param {String} field
+ * @return {Function}
+ */
+
+Facade.field = function (field) {
+  return function () {
+    return this.field(field);
+  };
+};
+
+/**
+ * Proxy multiple `path`.
+ *
+ * @param {String} path
+ * @return {Array}
+ */
+
+Facade.multi = function(path){
+  return function(){
+    var multi = this.proxy(path + 's');
+    if ('array' == type(multi)) return multi;
+    var one = this.proxy(path);
+    if (one) one = [clone(one)];
+    return one || [];
+  };
+};
+
+/**
+ * Proxy one `path`.
+ *
+ * @param {String} path
+ * @return {Mixed}
+ */
+
+Facade.one = function(path){
+  return function(){
+    var one = this.proxy(path);
+    if (one) return one;
+    var multi = this.proxy(path + 's');
+    if ('array' == type(multi)) return multi[0];
+  };
+};
+
+/**
+ * Get the basic json object of this facade.
+ *
+ * @return {Object}
+ */
+
+Facade.prototype.json = function () {
+  var ret = clone(this.obj);
+  if (this.type) ret.type = this.type();
+  return ret;
+};
+
+/**
+ * Get the options of a call (formerly called "context"). If you pass an
+ * integration name, it will get the options for that specific integration, or
+ * undefined if the integration is not enabled.
+ *
+ * @param {String} integration (optional)
+ * @return {Object or Null}
+ */
+
+Facade.prototype.context =
+Facade.prototype.options = function (integration) {
+  var options = clone(this.obj.options || this.obj.context) || {};
+  if (!integration) return clone(options);
+  if (!this.enabled(integration)) return;
+  var integrations = this.integrations();
+  var value = integrations[integration] || objCase(integrations, integration);
+  if ('boolean' == typeof value) value = {};
+  return value || {};
+};
+
+/**
+ * Check whether an integration is enabled.
+ *
+ * @param {String} integration
+ * @return {Boolean}
+ */
+
+Facade.prototype.enabled = function (integration) {
+  var allEnabled = this.proxy('options.providers.all');
+  if (typeof allEnabled !== 'boolean') allEnabled = this.proxy('options.all');
+  if (typeof allEnabled !== 'boolean') allEnabled = this.proxy('integrations.all');
+  if (typeof allEnabled !== 'boolean') allEnabled = true;
+
+  var enabled = allEnabled && isEnabled(integration);
+  var options = this.integrations();
+
+  // If the integration is explicitly enabled or disabled, use that
+  // First, check options.providers for backwards compatibility
+  if (options.providers && options.providers.hasOwnProperty(integration)) {
+    enabled = options.providers[integration];
+  }
+
+  // Next, check for the integration's existence in 'options' to enable it.
+  // If the settings are a boolean, use that, otherwise it should be enabled.
+  if (options.hasOwnProperty(integration)) {
+    var settings = options[integration];
+    if (typeof settings === 'boolean') {
+      enabled = settings;
+    } else {
+      enabled = true;
+    }
+  }
+
+  return enabled ? true : false;
+};
+
+/**
+ * Get all `integration` options.
+ *
+ * @param {String} integration
+ * @return {Object}
+ * @api private
+ */
+
+Facade.prototype.integrations = function(){
+  return this.obj.integrations
+    || this.proxy('options.providers')
+    || this.options();
+};
+
+/**
+ * Check whether the user is active.
+ *
+ * @return {Boolean}
+ */
+
+Facade.prototype.active = function () {
+  var active = this.proxy('options.active');
+  if (active === null || active === undefined) active = true;
+  return active;
+};
+
+/**
+ * Get `sessionId / anonymousId`.
+ *
+ * @return {Mixed}
+ * @api public
+ */
+
+Facade.prototype.sessionId =
+Facade.prototype.anonymousId = function(){
+  return this.field('anonymousId')
+    || this.field('sessionId');
+};
+
+/**
+ * Get `groupId` from `context.groupId`.
+ *
+ * @return {String}
+ * @api public
+ */
+
+Facade.prototype.groupId = Facade.proxy('options.groupId');
+
+/**
+ * Get the call's "super properties" which are just traits that have been
+ * passed in as if from an identify call.
+ *
+ * @param {Object} aliases
+ * @return {Object}
+ */
+
+Facade.prototype.traits = function (aliases) {
+  var ret = this.proxy('options.traits') || {};
+  var id = this.userId();
+  aliases = aliases || {};
+
+  if (id) ret.id = id;
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('options.traits.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    ret[aliases[alias]] = value;
+    delete ret[alias];
+  }
+
+  return ret;
+};
+
+/**
+ * Add a convenient way to get the library name and version
+ */
+
+Facade.prototype.library = function(){
+  var library = this.proxy('options.library');
+  if (!library) return { name: 'unknown', version: null };
+  if (typeof library === 'string') return { name: library, version: null };
+  return library;
+};
+
+/**
+ * Setup some basic proxies.
+ */
+
+Facade.prototype.userId = Facade.field('userId');
+Facade.prototype.channel = Facade.field('channel');
+Facade.prototype.timestamp = Facade.field('timestamp');
+Facade.prototype.userAgent = Facade.proxy('options.userAgent');
+Facade.prototype.ip = Facade.proxy('options.ip');
+
+/**
+ * Return the cloned and traversed object
+ *
+ * @param {Mixed} obj
+ * @return {Mixed}
+ */
+
+function transform(obj){
+  var cloned = clone(obj);
+  return cloned;
+}
+
+}, {"isodate-traverse":36,"./is-enabled":37,"./utils":38,"./address":39,"obj-case":40,"new-date":41}],
+36: [function(require, module, exports) {
+
+var is = require('is');
+var isodate = require('isodate');
+var each;
+
+try {
+  each = require('each');
+} catch (err) {
+  each = require('each-component');
+}
+
+/**
+ * Expose `traverse`.
+ */
+
+module.exports = traverse;
+
+/**
+ * Traverse an object or array, and return a clone with all ISO strings parsed
+ * into Date objects.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ */
+
+function traverse (input, strict) {
+  if (strict === undefined) strict = true;
+
+  if (is.object(input)) return object(input, strict);
+  if (is.array(input)) return array(input, strict);
+  return input;
+}
+
+/**
+ * Object traverser.
+ *
+ * @param {Object} obj
+ * @param {Boolean} strict
+ * @return {Object}
+ */
+
+function object (obj, strict) {
+  each(obj, function (key, val) {
+    if (isodate.is(val, strict)) {
+      obj[key] = isodate.parse(val);
+    } else if (is.object(val) || is.array(val)) {
+      traverse(val, strict);
+    }
+  });
+  return obj;
+}
+
+/**
+ * Array traverser.
+ *
+ * @param {Array} arr
+ * @param {Boolean} strict
+ * @return {Array}
+ */
+
+function array (arr, strict) {
+  each(arr, function (val, x) {
+    if (is.object(val)) {
+      traverse(val, strict);
+    } else if (isodate.is(val, strict)) {
+      arr[x] = isodate.parse(val);
+    }
+  });
+  return arr;
+}
+
+}, {"is":42,"isodate":43,"each":4}],
+42: [function(require, module, exports) {
+
+var isEmpty = require('is-empty');
+
+try {
+  var typeOf = require('type');
+} catch (e) {
+  var typeOf = require('component-type');
+}
+
+
+/**
+ * Types.
+ */
+
+var types = [
+  'arguments',
+  'array',
+  'boolean',
+  'date',
+  'element',
+  'function',
+  'null',
+  'number',
+  'object',
+  'regexp',
+  'string',
+  'undefined'
+];
+
+
+/**
+ * Expose type checkers.
+ *
+ * @param {Mixed} value
+ * @return {Boolean}
+ */
+
+for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
+
+
+/**
+ * Add alias for `function` for old browsers.
+ */
+
+exports.fn = exports['function'];
+
+
+/**
+ * Expose `empty` check.
+ */
+
+exports.empty = isEmpty;
+
+
+/**
+ * Expose `nan` check.
+ */
+
+exports.nan = function (val) {
+  return exports.number(val) && val != val;
+};
+
+
+/**
+ * Generate a type checker.
+ *
+ * @param {String} type
+ * @return {Function}
+ */
+
+function generate (type) {
+  return function (value) {
+    return type === typeOf(value);
+  };
+}
+}, {"is-empty":44,"type":45,"component-type":45}],
+44: [function(require, module, exports) {
+
+/**
+ * Expose `isEmpty`.
+ */
+
+module.exports = isEmpty;
+
+
+/**
+ * Has.
+ */
+
+var has = Object.prototype.hasOwnProperty;
+
+
+/**
+ * Test whether a value is "empty".
+ *
+ * @param {Mixed} val
+ * @return {Boolean}
+ */
+
+function isEmpty (val) {
+  if (null == val) return true;
+  if ('number' == typeof val) return 0 === val;
+  if (undefined !== val.length) return 0 === val.length;
+  for (var key in val) if (has.call(val, key)) return false;
+  return true;
+}
+}, {}],
+45: [function(require, module, exports) {
+/**
+ * toString ref.
+ */
+
+var toString = Object.prototype.toString;
+
+/**
+ * Return the type of `val`.
+ *
+ * @param {Mixed} val
+ * @return {String}
+ * @api public
+ */
+
+module.exports = function(val){
+  switch (toString.call(val)) {
+    case '[object Date]': return 'date';
+    case '[object RegExp]': return 'regexp';
+    case '[object Arguments]': return 'arguments';
+    case '[object Array]': return 'array';
+    case '[object Error]': return 'error';
+  }
+
+  if (val === null) return 'null';
+  if (val === undefined) return 'undefined';
+  if (val !== val) return 'nan';
+  if (val && val.nodeType === 1) return 'element';
+
+  val = val.valueOf
+    ? val.valueOf()
+    : Object.prototype.valueOf.apply(val)
+
+  return typeof val;
+};
+
+}, {}],
+43: [function(require, module, exports) {
+
+/**
+ * Matcher, slightly modified from:
+ *
+ * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
+ */
+
+var matcher = /^(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?(?:([ T])(\d{2}):?(\d{2})(?::?(\d{2})(?:[,\.](\d{1,}))?)?(?:(Z)|([+\-])(\d{2})(?::?(\d{2}))?)?)?$/;
+
+
+/**
+ * Convert an ISO date string to a date. Fallback to native `Date.parse`.
+ *
+ * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
+ *
+ * @param {String} iso
+ * @return {Date}
+ */
+
+exports.parse = function (iso) {
+  var numericKeys = [1, 5, 6, 7, 11, 12];
+  var arr = matcher.exec(iso);
+  var offset = 0;
+
+  // fallback to native parsing
+  if (!arr) return new Date(iso);
+
+  // remove undefined values
+  for (var i = 0, val; val = numericKeys[i]; i++) {
+    arr[val] = parseInt(arr[val], 10) || 0;
+  }
+
+  // allow undefined days and months
+  arr[2] = parseInt(arr[2], 10) || 1;
+  arr[3] = parseInt(arr[3], 10) || 1;
+
+  // month is 0-11
+  arr[2]--;
+
+  // allow abitrary sub-second precision
+  arr[8] = arr[8]
+    ? (arr[8] + '00').substring(0, 3)
+    : 0;
+
+  // apply timezone if one exists
+  if (arr[4] == ' ') {
+    offset = new Date().getTimezoneOffset();
+  } else if (arr[9] !== 'Z' && arr[10]) {
+    offset = arr[11] * 60 + arr[12];
+    if ('+' == arr[10]) offset = 0 - offset;
+  }
+
+  var millis = Date.UTC(arr[1], arr[2], arr[3], arr[5], arr[6] + offset, arr[7], arr[8]);
+  return new Date(millis);
+};
+
+
+/**
+ * Checks whether a `string` is an ISO date string. `strict` mode requires that
+ * the date string at least have a year, month and date.
+ *
+ * @param {String} string
+ * @param {Boolean} strict
+ * @return {Boolean}
+ */
+
+exports.is = function (string, strict) {
+  if (strict && false === /^\d{4}-\d{2}-\d{2}/.test(string)) return false;
+  return matcher.test(string);
+};
+}, {}],
+4: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var type = require('type');
+
+/**
+ * HOP reference.
+ */
+
+var has = Object.prototype.hasOwnProperty;
+
+/**
+ * Iterate the given `obj` and invoke `fn(val, i)`.
+ *
+ * @param {String|Array|Object} obj
+ * @param {Function} fn
+ * @api public
+ */
+
+module.exports = function(obj, fn){
+  switch (type(obj)) {
+    case 'array':
+      return array(obj, fn);
+    case 'object':
+      if ('number' == typeof obj.length) return array(obj, fn);
+      return object(obj, fn);
+    case 'string':
+      return string(obj, fn);
+  }
+};
+
+/**
+ * Iterate string chars.
+ *
+ * @param {String} obj
+ * @param {Function} fn
+ * @api private
+ */
+
+function string(obj, fn) {
+  for (var i = 0; i < obj.length; ++i) {
+    fn(obj.charAt(i), i);
+  }
+}
+
+/**
+ * Iterate object keys.
+ *
+ * @param {Object} obj
+ * @param {Function} fn
+ * @api private
+ */
+
+function object(obj, fn) {
+  for (var key in obj) {
+    if (has.call(obj, key)) {
+      fn(key, obj[key]);
+    }
+  }
+}
+
+/**
+ * Iterate array-ish.
+ *
+ * @param {Array|Object} obj
+ * @param {Function} fn
+ * @api private
+ */
+
+function array(obj, fn) {
+  for (var i = 0; i < obj.length; ++i) {
+    fn(obj[i], i);
+  }
+}
+}, {"type":45}],
+37: [function(require, module, exports) {
+
+/**
+ * A few integrations are disabled by default. They must be explicitly
+ * enabled by setting options[Provider] = true.
+ */
+
+var disabled = {
+  Salesforce: true
+};
+
+/**
+ * Check whether an integration should be enabled by default.
+ *
+ * @param {String} integration
+ * @return {Boolean}
+ */
+
+module.exports = function (integration) {
+  return ! disabled[integration];
+};
+}, {}],
+38: [function(require, module, exports) {
+
+/**
+ * TODO: use component symlink, everywhere ?
+ */
+
+try {
+  exports.inherit = require('inherit');
+  exports.clone = require('clone');
+  exports.type = require('type');
+} catch (e) {
+  exports.inherit = require('inherit-component');
+  exports.clone = require('clone-component');
+  exports.type = require('type-component');
+}
+
+}, {"inherit":46,"clone":47,"type":45}],
+46: [function(require, module, exports) {
+
+module.exports = function(a, b){
+  var fn = function(){};
+  fn.prototype = b.prototype;
+  a.prototype = new fn;
+  a.prototype.constructor = a;
+};
+}, {}],
+47: [function(require, module, exports) {
+/**
+ * Module dependencies.
+ */
+
+var type;
+try {
+  type = require('component-type');
+} catch (_) {
+  type = require('type');
+}
+
+/**
+ * Module exports.
+ */
+
+module.exports = clone;
+
+/**
+ * Clones objects.
+ *
+ * @param {Mixed} any object
+ * @api public
+ */
+
+function clone(obj){
+  switch (type(obj)) {
+    case 'object':
+      var copy = {};
+      for (var key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          copy[key] = clone(obj[key]);
+        }
+      }
+      return copy;
+
+    case 'array':
+      var copy = new Array(obj.length);
+      for (var i = 0, l = obj.length; i < l; i++) {
+        copy[i] = clone(obj[i]);
+      }
+      return copy;
+
+    case 'regexp':
+      // from millermedeiros/amd-utils - MIT
+      var flags = '';
+      flags += obj.multiline ? 'm' : '';
+      flags += obj.global ? 'g' : '';
+      flags += obj.ignoreCase ? 'i' : '';
+      return new RegExp(obj.source, flags);
+
+    case 'date':
+      return new Date(obj.getTime());
+
+    default: // string, number, boolean, …
+      return obj;
+  }
+}
+
+}, {"component-type":45,"type":45}],
+39: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var get = require('obj-case');
+
+/**
+ * Add address getters to `proto`.
+ *
+ * @param {Function} proto
+ */
+
+module.exports = function(proto){
+  proto.zip = trait('postalCode', 'zip');
+  proto.country = trait('country');
+  proto.street = trait('street');
+  proto.state = trait('state');
+  proto.city = trait('city');
+
+  function trait(a, b){
+    return function(){
+      var traits = this.traits();
+      var props = this.properties ? this.properties() : {};
+
+      return get(traits, 'address.' + a)
+        || get(traits, a)
+        || (b ? get(traits, 'address.' + b) : null)
+        || (b ? get(traits, b) : null)
+        || get(props, 'address.' + a)
+        || get(props, a)
+        || (b ? get(props, 'address.' + b) : null)
+        || (b ? get(props, b) : null);
+    };
+  }
+};
+
+}, {"obj-case":40}],
+40: [function(require, module, exports) {
+
+var identity = function(_){ return _; };
+
+
+/**
+ * Module exports, export
+ */
+
+module.exports = multiple(find);
+module.exports.find = module.exports;
+
+
+/**
+ * Export the replacement function, return the modified object
+ */
+
+module.exports.replace = function (obj, key, val, options) {
+  multiple(replace).call(this, obj, key, val, options);
+  return obj;
+};
+
+
+/**
+ * Export the delete function, return the modified object
+ */
+
+module.exports.del = function (obj, key, options) {
+  multiple(del).call(this, obj, key, null, options);
+  return obj;
+};
+
+
+/**
+ * Compose applying the function to a nested key
+ */
+
+function multiple (fn) {
+  return function (obj, path, val, options) {
+    var normalize = options && isFunction(options.normalizer) ? options.normalizer : defaultNormalize;
+    path = normalize(path);
+
+    var key;
+    var finished = false;
+
+    while (!finished) loop();
+
+    function loop() {
+      for (key in obj) {
+        var normalizedKey = normalize(key);
+        if (0 === path.indexOf(normalizedKey)) {
+          var temp = path.substr(normalizedKey.length);
+          if (temp.charAt(0) === '.' || temp.length === 0) {
+            path = temp.substr(1);
+            var child = obj[key];
+
+            // we're at the end and there is nothing.
+            if (null == child) {
+              finished = true;
+              return;
+            }
+
+            // we're at the end and there is something.
+            if (!path.length) {
+              finished = true;
+              return;
+            }
+
+            // step into child
+            obj = child;
+
+            // but we're done here
+            return;
+          }
+        }
+      }
+
+      key = undefined;
+      // if we found no matching properties
+      // on the current object, there's no match.
+      finished = true;
+    }
+
+    if (!key) return;
+    if (null == obj) return obj;
+
+    // the `obj` and `key` is one above the leaf object and key, so
+    // start object: { a: { 'b.c': 10 } }
+    // end object: { 'b.c': 10 }
+    // end key: 'b.c'
+    // this way, you can do `obj[key]` and get `10`.
+    return fn(obj, key, val);
+  };
+}
+
+
+/**
+ * Find an object by its key
+ *
+ * find({ first_name : 'Calvin' }, 'firstName')
+ */
+
+function find (obj, key) {
+  if (obj.hasOwnProperty(key)) return obj[key];
+}
+
+
+/**
+ * Delete a value for a given key
+ *
+ * del({ a : 'b', x : 'y' }, 'X' }) -> { a : 'b' }
+ */
+
+function del (obj, key) {
+  if (obj.hasOwnProperty(key)) delete obj[key];
+  return obj;
+}
+
+
+/**
+ * Replace an objects existing value with a new one
+ *
+ * replace({ a : 'b' }, 'a', 'c') -> { a : 'c' }
+ */
+
+function replace (obj, key, val) {
+  if (obj.hasOwnProperty(key)) obj[key] = val;
+  return obj;
+}
+
+/**
+ * Normalize a `dot.separated.path`.
+ *
+ * A.HELL(!*&#(!)O_WOR   LD.bar => ahelloworldbar
+ *
+ * @param {String} path
+ * @return {String}
+ */
+
+function defaultNormalize(path) {
+  return path.replace(/[^a-zA-Z0-9\.]+/g, '').toLowerCase();
+}
+
+/**
+ * Check if a value is a function.
+ *
+ * @param {*} val
+ * @return {boolean} Returns `true` if `val` is a function, otherwise `false`.
+ */
+
+function isFunction(val) {
+  return typeof val === 'function';
+}
+
+}, {}],
+41: [function(require, module, exports) {
+
+var is = require('is');
+var isodate = require('isodate');
+var milliseconds = require('./milliseconds');
+var seconds = require('./seconds');
+
+
+/**
+ * Returns a new Javascript Date object, allowing a variety of extra input types
+ * over the native Date constructor.
+ *
+ * @param {Date|String|Number} val
+ */
+
+module.exports = function newDate (val) {
+  if (is.date(val)) return val;
+  if (is.number(val)) return new Date(toMs(val));
+
+  // date strings
+  if (isodate.is(val)) return isodate.parse(val);
+  if (milliseconds.is(val)) return milliseconds.parse(val);
+  if (seconds.is(val)) return seconds.parse(val);
+
+  // fallback to Date.parse
+  return new Date(val);
+};
+
+
+/**
+ * If the number passed val is seconds from the epoch, turn it into milliseconds.
+ * Milliseconds would be greater than 31557600000 (December 31, 1970).
+ *
+ * @param {Number} num
+ */
+
+function toMs (num) {
+  if (num < 31557600000) return num * 1000;
+  return num;
+}
+}, {"is":48,"isodate":43,"./milliseconds":49,"./seconds":50}],
+48: [function(require, module, exports) {
+
+var isEmpty = require('is-empty')
+  , typeOf = require('type');
+
+
+/**
+ * Types.
+ */
+
+var types = [
+  'arguments',
+  'array',
+  'boolean',
+  'date',
+  'element',
+  'function',
+  'null',
+  'number',
+  'object',
+  'regexp',
+  'string',
+  'undefined'
+];
+
+
+/**
+ * Expose type checkers.
+ *
+ * @param {Mixed} value
+ * @return {Boolean}
+ */
+
+for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
+
+
+/**
+ * Add alias for `function` for old browsers.
+ */
+
+exports.fn = exports['function'];
+
+
+/**
+ * Expose `empty` check.
+ */
+
+exports.empty = isEmpty;
+
+
+/**
+ * Expose `nan` check.
+ */
+
+exports.nan = function (val) {
+  return exports.number(val) && val != val;
+};
+
+
+/**
+ * Generate a type checker.
+ *
+ * @param {String} type
+ * @return {Function}
+ */
+
+function generate (type) {
+  return function (value) {
+    return type === typeOf(value);
+  };
+}
+}, {"is-empty":44,"type":45}],
+49: [function(require, module, exports) {
+
+/**
+ * Matcher.
+ */
+
+var matcher = /\d{13}/;
+
+
+/**
+ * Check whether a string is a millisecond date string.
+ *
+ * @param {String} string
+ * @return {Boolean}
+ */
+
+exports.is = function (string) {
+  return matcher.test(string);
+};
+
+
+/**
+ * Convert a millisecond string to a date.
+ *
+ * @param {String} millis
+ * @return {Date}
+ */
+
+exports.parse = function (millis) {
+  millis = parseInt(millis, 10);
+  return new Date(millis);
+};
+}, {}],
+50: [function(require, module, exports) {
+
+/**
+ * Matcher.
+ */
+
+var matcher = /\d{10}/;
+
+
+/**
+ * Check whether a string is a second date string.
+ *
+ * @param {String} string
+ * @return {Boolean}
+ */
+
+exports.is = function (string) {
+  return matcher.test(string);
+};
+
+
+/**
+ * Convert a second string to a date.
+ *
+ * @param {String} seconds
+ * @return {Date}
+ */
+
+exports.parse = function (seconds) {
+  var millis = parseInt(seconds, 10) * 1000;
+  return new Date(millis);
+};
+}, {}],
+30: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var inherit = require('./utils').inherit;
+var Facade = require('./facade');
+
+/**
+ * Expose `Alias` facade.
+ */
+
+module.exports = Alias;
+
+/**
+ * Initialize a new `Alias` facade with a `dictionary` of arguments.
+ *
+ * @param {Object} dictionary
+ *   @property {String} from
+ *   @property {String} to
+ *   @property {Object} options
+ */
+
+function Alias (dictionary) {
+  Facade.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Facade`.
+ */
+
+inherit(Alias, Facade);
+
+/**
+ * Return type of facade.
+ *
+ * @return {String}
+ */
+
+Alias.prototype.type =
+Alias.prototype.action = function () {
+  return 'alias';
+};
+
+/**
+ * Get `previousId`.
+ *
+ * @return {Mixed}
+ * @api public
+ */
+
+Alias.prototype.from =
+Alias.prototype.previousId = function(){
+  return this.field('previousId')
+    || this.field('from');
+};
+
+/**
+ * Get `userId`.
+ *
+ * @return {String}
+ * @api public
+ */
+
+Alias.prototype.to =
+Alias.prototype.userId = function(){
+  return this.field('userId')
+    || this.field('to');
+};
+
+}, {"./utils":38,"./facade":29}],
+31: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var inherit = require('./utils').inherit;
+var address = require('./address');
+var isEmail = require('is-email');
+var newDate = require('new-date');
+var Facade = require('./facade');
+
+/**
+ * Expose `Group` facade.
+ */
+
+module.exports = Group;
+
+/**
+ * Initialize a new `Group` facade with a `dictionary` of arguments.
+ *
+ * @param {Object} dictionary
+ *   @param {String} userId
+ *   @param {String} groupId
+ *   @param {Object} properties
+ *   @param {Object} options
+ */
+
+function Group (dictionary) {
+  Facade.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Facade`
+ */
+
+inherit(Group, Facade);
+
+/**
+ * Get the facade's action.
+ */
+
+Group.prototype.type =
+Group.prototype.action = function () {
+  return 'group';
+};
+
+/**
+ * Setup some basic proxies.
+ */
+
+Group.prototype.groupId = Facade.field('groupId');
+
+/**
+ * Get created or createdAt.
+ *
+ * @return {Date}
+ */
+
+Group.prototype.created = function(){
+  var created = this.proxy('traits.createdAt')
+    || this.proxy('traits.created')
+    || this.proxy('properties.createdAt')
+    || this.proxy('properties.created');
+
+  if (created) return newDate(created);
+};
+
+/**
+ * Get the group's email, falling back to the group ID if it's a valid email.
+ *
+ * @return {String}
+ */
+
+Group.prototype.email = function () {
+  var email = this.proxy('traits.email');
+  if (email) return email;
+  var groupId = this.groupId();
+  if (isEmail(groupId)) return groupId;
+};
+
+/**
+ * Get the group's traits.
+ *
+ * @param {Object} aliases
+ * @return {Object}
+ */
+
+Group.prototype.traits = function (aliases) {
+  var ret = this.properties();
+  var id = this.groupId();
+  aliases = aliases || {};
+
+  if (id) ret.id = id;
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('traits.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    ret[aliases[alias]] = value;
+    delete ret[alias];
+  }
+
+  return ret;
+};
+
+/**
+ * Special traits.
+ */
+
+Group.prototype.name = Facade.proxy('traits.name');
+Group.prototype.industry = Facade.proxy('traits.industry');
+Group.prototype.employees = Facade.proxy('traits.employees');
+
+/**
+ * Get traits or properties.
+ *
+ * TODO: remove me
+ *
+ * @return {Object}
+ */
+
+Group.prototype.properties = function(){
+  return this.field('traits')
+    || this.field('properties')
+    || {};
+};
+
+}, {"./utils":38,"./address":39,"is-email":51,"new-date":41,"./facade":29}],
+51: [function(require, module, exports) {
+
+/**
+ * Expose `isEmail`.
+ */
+
+module.exports = isEmail;
+
+
+/**
+ * Email address matcher.
+ */
+
+var matcher = /.+\@.+\..+/;
+
+
+/**
+ * Loosely validate an email address.
+ *
+ * @param {String} string
+ * @return {Boolean}
+ */
+
+function isEmail (string) {
+  return matcher.test(string);
+}
+}, {}],
+32: [function(require, module, exports) {
+
+var address = require('./address');
+var Facade = require('./facade');
+var isEmail = require('is-email');
+var newDate = require('new-date');
+var utils = require('./utils');
+var get = require('obj-case');
+var trim = require('trim');
+var inherit = utils.inherit;
+var clone = utils.clone;
+var type = utils.type;
+
+/**
+ * Expose `Idenfity` facade.
+ */
+
+module.exports = Identify;
+
+/**
+ * Initialize a new `Identify` facade with a `dictionary` of arguments.
+ *
+ * @param {Object} dictionary
+ *   @param {String} userId
+ *   @param {String} sessionId
+ *   @param {Object} traits
+ *   @param {Object} options
+ */
+
+function Identify (dictionary) {
+  Facade.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Facade`.
+ */
+
+inherit(Identify, Facade);
+
+/**
+ * Get the facade's action.
+ */
+
+Identify.prototype.type =
+Identify.prototype.action = function () {
+  return 'identify';
+};
+
+/**
+ * Get the user's traits.
+ *
+ * @param {Object} aliases
+ * @return {Object}
+ */
+
+Identify.prototype.traits = function (aliases) {
+  var ret = this.field('traits') || {};
+  var id = this.userId();
+  aliases = aliases || {};
+
+  if (id) ret.id = id;
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('traits.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    ret[aliases[alias]] = value;
+    if (alias !== aliases[alias]) delete ret[alias];
+  }
+
+  return ret;
+};
+
+/**
+ * Get the user's email, falling back to their user ID if it's a valid email.
+ *
+ * @return {String}
+ */
+
+Identify.prototype.email = function () {
+  var email = this.proxy('traits.email');
+  if (email) return email;
+
+  var userId = this.userId();
+  if (isEmail(userId)) return userId;
+};
+
+/**
+ * Get the user's created date, optionally looking for `createdAt` since lots of
+ * people do that instead.
+ *
+ * @return {Date or Undefined}
+ */
+
+Identify.prototype.created = function () {
+  var created = this.proxy('traits.created') || this.proxy('traits.createdAt');
+  if (created) return newDate(created);
+};
+
+/**
+ * Get the company created date.
+ *
+ * @return {Date or undefined}
+ */
+
+Identify.prototype.companyCreated = function(){
+  var created = this.proxy('traits.company.created')
+    || this.proxy('traits.company.createdAt');
+
+  if (created) return newDate(created);
+};
+
+/**
+ * Get the user's name, optionally combining a first and last name if that's all
+ * that was provided.
+ *
+ * @return {String or Undefined}
+ */
+
+Identify.prototype.name = function () {
+  var name = this.proxy('traits.name');
+  if (typeof name === 'string') return trim(name);
+
+  var firstName = this.firstName();
+  var lastName = this.lastName();
+  if (firstName && lastName) return trim(firstName + ' ' + lastName);
+};
+
+/**
+ * Get the user's first name, optionally splitting it out of a single name if
+ * that's all that was provided.
+ *
+ * @return {String or Undefined}
+ */
+
+Identify.prototype.firstName = function () {
+  var firstName = this.proxy('traits.firstName');
+  if (typeof firstName === 'string') return trim(firstName);
+
+  var name = this.proxy('traits.name');
+  if (typeof name === 'string') return trim(name).split(' ')[0];
+};
+
+/**
+ * Get the user's last name, optionally splitting it out of a single name if
+ * that's all that was provided.
+ *
+ * @return {String or Undefined}
+ */
+
+Identify.prototype.lastName = function () {
+  var lastName = this.proxy('traits.lastName');
+  if (typeof lastName === 'string') return trim(lastName);
+
+  var name = this.proxy('traits.name');
+  if (typeof name !== 'string') return;
+
+  var space = trim(name).indexOf(' ');
+  if (space === -1) return;
+
+  return trim(name.substr(space + 1));
+};
+
+/**
+ * Get the user's unique id.
+ *
+ * @return {String or undefined}
+ */
+
+Identify.prototype.uid = function(){
+  return this.userId()
+    || this.username()
+    || this.email();
+};
+
+/**
+ * Get description.
+ *
+ * @return {String}
+ */
+
+Identify.prototype.description = function(){
+  return this.proxy('traits.description')
+    || this.proxy('traits.background');
+};
+
+/**
+ * Get the age.
+ *
+ * If the age is not explicitly set
+ * the method will compute it from `.birthday()`
+ * if possible.
+ *
+ * @return {Number}
+ */
+
+Identify.prototype.age = function(){
+  var date = this.birthday();
+  var age = get(this.traits(), 'age');
+  if (null != age) return age;
+  if ('date' != type(date)) return;
+  var now = new Date;
+  return now.getFullYear() - date.getFullYear();
+};
+
+/**
+ * Get the avatar.
+ *
+ * .photoUrl needed because help-scout
+ * implementation uses `.avatar || .photoUrl`.
+ *
+ * .avatarUrl needed because trakio uses it.
+ *
+ * @return {Mixed}
+ */
+
+Identify.prototype.avatar = function(){
+  var traits = this.traits();
+  return get(traits, 'avatar')
+    || get(traits, 'photoUrl')
+    || get(traits, 'avatarUrl');
+};
+
+/**
+ * Get the position.
+ *
+ * .jobTitle needed because some integrations use it.
+ *
+ * @return {Mixed}
+ */
+
+Identify.prototype.position = function(){
+  var traits = this.traits();
+  return get(traits, 'position') || get(traits, 'jobTitle');
+};
+
+/**
+ * Setup sme basic "special" trait proxies.
+ */
+
+Identify.prototype.username = Facade.proxy('traits.username');
+Identify.prototype.website = Facade.one('traits.website');
+Identify.prototype.websites = Facade.multi('traits.website');
+Identify.prototype.phone = Facade.one('traits.phone');
+Identify.prototype.phones = Facade.multi('traits.phone');
+Identify.prototype.address = Facade.proxy('traits.address');
+Identify.prototype.gender = Facade.proxy('traits.gender');
+Identify.prototype.birthday = Facade.proxy('traits.birthday');
+
+}, {"./address":39,"./facade":29,"is-email":51,"new-date":41,"./utils":38,"obj-case":40,"trim":52}],
+52: [function(require, module, exports) {
+
+exports = module.exports = trim;
+
+function trim(str){
+  if (str.trim) return str.trim();
+  return str.replace(/^\s*|\s*$/g, '');
+}
+
+exports.left = function(str){
+  if (str.trimLeft) return str.trimLeft();
+  return str.replace(/^\s*/, '');
+};
+
+exports.right = function(str){
+  if (str.trimRight) return str.trimRight();
+  return str.replace(/\s*$/, '');
+};
+
+}, {}],
+33: [function(require, module, exports) {
+
+var inherit = require('./utils').inherit;
+var clone = require('./utils').clone;
+var type = require('./utils').type;
+var Facade = require('./facade');
+var Identify = require('./identify');
+var isEmail = require('is-email');
+var get = require('obj-case');
+
+/**
+ * Expose `Track` facade.
+ */
+
+module.exports = Track;
+
+/**
+ * Initialize a new `Track` facade with a `dictionary` of arguments.
+ *
+ * @param {object} dictionary
+ *   @property {String} event
+ *   @property {String} userId
+ *   @property {String} sessionId
+ *   @property {Object} properties
+ *   @property {Object} options
+ */
+
+function Track (dictionary) {
+  Facade.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Facade`.
+ */
+
+inherit(Track, Facade);
+
+/**
+ * Return the facade's action.
+ *
+ * @return {String}
+ */
+
+Track.prototype.type =
+Track.prototype.action = function () {
+  return 'track';
+};
+
+/**
+ * Setup some basic proxies.
+ */
+
+Track.prototype.event = Facade.field('event');
+Track.prototype.value = Facade.proxy('properties.value');
+
+/**
+ * Misc
+ */
+
+Track.prototype.category = Facade.proxy('properties.category');
+
+/**
+ * Ecommerce
+ */
+
+Track.prototype.id = Facade.proxy('properties.id');
+Track.prototype.sku = Facade.proxy('properties.sku');
+Track.prototype.tax = Facade.proxy('properties.tax');
+Track.prototype.name = Facade.proxy('properties.name');
+Track.prototype.price = Facade.proxy('properties.price');
+Track.prototype.total = Facade.proxy('properties.total');
+Track.prototype.coupon = Facade.proxy('properties.coupon');
+Track.prototype.shipping = Facade.proxy('properties.shipping');
+Track.prototype.discount = Facade.proxy('properties.discount');
+
+/**
+ * Description
+ */
+
+Track.prototype.description = Facade.proxy('properties.description');
+
+/**
+ * Plan
+ */
+
+Track.prototype.plan = Facade.proxy('properties.plan');
+
+/**
+ * Order id.
+ *
+ * @return {String}
+ * @api public
+ */
+
+Track.prototype.orderId = function(){
+  return this.proxy('properties.id')
+    || this.proxy('properties.orderId');
+};
+
+/**
+ * Get subtotal.
+ *
+ * @return {Number}
+ */
+
+Track.prototype.subtotal = function(){
+  var subtotal = get(this.properties(), 'subtotal');
+  var total = this.total();
+  var n;
+
+  if (subtotal) return subtotal;
+  if (!total) return 0;
+  if (n = this.tax()) total -= n;
+  if (n = this.shipping()) total -= n;
+  if (n = this.discount()) total += n;
+
+  return total;
+};
+
+/**
+ * Get products.
+ *
+ * @return {Array}
+ */
+
+Track.prototype.products = function(){
+  var props = this.properties();
+  var products = get(props, 'products');
+  return 'array' == type(products)
+    ? products
+    : [];
+};
+
+/**
+ * Get quantity.
+ *
+ * @return {Number}
+ */
+
+Track.prototype.quantity = function(){
+  var props = this.obj.properties || {};
+  return props.quantity || 1;
+};
+
+/**
+ * Get currency.
+ *
+ * @return {String}
+ */
+
+Track.prototype.currency = function(){
+  var props = this.obj.properties || {};
+  return props.currency || 'USD';
+};
+
+/**
+ * BACKWARDS COMPATIBILITY: should probably re-examine where these come from.
+ */
+
+Track.prototype.referrer = Facade.proxy('properties.referrer');
+Track.prototype.query = Facade.proxy('options.query');
+
+/**
+ * Get the call's properties.
+ *
+ * @param {Object} aliases
+ * @return {Object}
+ */
+
+Track.prototype.properties = function (aliases) {
+  var ret = this.field('properties') || {};
+  aliases = aliases || {};
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('properties.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    ret[aliases[alias]] = value;
+    delete ret[alias];
+  }
+
+  return ret;
+};
+
+/**
+ * Get the call's username.
+ *
+ * @return {String or Undefined}
+ */
+
+Track.prototype.username = function () {
+  return this.proxy('traits.username') ||
+         this.proxy('properties.username') ||
+         this.userId() ||
+         this.sessionId();
+};
+
+/**
+ * Get the call's email, using an the user ID if it's a valid email.
+ *
+ * @return {String or Undefined}
+ */
+
+Track.prototype.email = function () {
+  var email = this.proxy('traits.email');
+  email = email || this.proxy('properties.email');
+  if (email) return email;
+
+  var userId = this.userId();
+  if (isEmail(userId)) return userId;
+};
+
+/**
+ * Get the call's revenue, parsing it from a string with an optional leading
+ * dollar sign.
+ *
+ * For products/services that don't have shipping and are not directly taxed,
+ * they only care about tracking `revenue`. These are things like
+ * SaaS companies, who sell monthly subscriptions. The subscriptions aren't
+ * taxed directly, and since it's a digital product, it has no shipping.
+ *
+ * The only case where there's a difference between `revenue` and `total`
+ * (in the context of analytics) is on ecommerce platforms, where they want
+ * the `revenue` function to actually return the `total` (which includes
+ * tax and shipping, total = subtotal + tax + shipping). This is probably
+ * because on their backend they assume tax and shipping has been applied to
+ * the value, and so can get the revenue on their own.
+ *
+ * @return {Number}
+ */
+
+Track.prototype.revenue = function () {
+  var revenue = this.proxy('properties.revenue');
+  var event = this.event();
+
+  // it's always revenue, unless it's called during an order completion.
+  if (!revenue && event && event.match(/completed ?order/i)) {
+    revenue = this.proxy('properties.total');
+  }
+
+  return currency(revenue);
+};
+
+/**
+ * Get cents.
+ *
+ * @return {Number}
+ */
+
+Track.prototype.cents = function(){
+  var revenue = this.revenue();
+  return 'number' != typeof revenue
+    ? this.value() || 0
+    : revenue * 100;
+};
+
+/**
+ * A utility to turn the pieces of a track call into an identify. Used for
+ * integrations with super properties or rate limits.
+ *
+ * TODO: remove me.
+ *
+ * @return {Facade}
+ */
+
+Track.prototype.identify = function () {
+  var json = this.json();
+  json.traits = this.traits();
+  return new Identify(json);
+};
+
+/**
+ * Get float from currency value.
+ *
+ * @param {Mixed} val
+ * @return {Number}
+ */
+
+function currency(val) {
+  if (!val) return;
+  if (typeof val === 'number') return val;
+  if (typeof val !== 'string') return;
+
+  val = val.replace(/\$/g, '');
+  val = parseFloat(val);
+
+  if (!isNaN(val)) return val;
+}
+
+}, {"./utils":38,"./facade":29,"./identify":32,"is-email":51,"obj-case":40}],
+34: [function(require, module, exports) {
+
+var inherit = require('./utils').inherit;
+var Facade = require('./facade');
+var Track = require('./track');
+
+/**
+ * Expose `Page` facade
+ */
+
+module.exports = Page;
+
+/**
+ * Initialize new `Page` facade with `dictionary`.
+ *
+ * @param {Object} dictionary
+ *   @param {String} category
+ *   @param {String} name
+ *   @param {Object} traits
+ *   @param {Object} options
+ */
+
+function Page(dictionary){
+  Facade.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Facade`
+ */
+
+inherit(Page, Facade);
+
+/**
+ * Get the facade's action.
+ *
+ * @return {String}
+ */
+
+Page.prototype.type =
+Page.prototype.action = function(){
+  return 'page';
+};
+
+/**
+ * Fields
+ */
+
+Page.prototype.category = Facade.field('category');
+Page.prototype.name = Facade.field('name');
+
+/**
+ * Proxies.
+ */
+
+Page.prototype.title = Facade.proxy('properties.title');
+Page.prototype.path = Facade.proxy('properties.path');
+Page.prototype.url = Facade.proxy('properties.url');
+
+/**
+ * Referrer.
+ */
+
+Page.prototype.referrer = function(){
+  return this.proxy('properties.referrer')
+    || this.proxy('context.referrer.url');
+};
+
+/**
+ * Get the page properties mixing `category` and `name`.
+ *
+ * @param {Object} aliases
+ * @return {Object}
+ */
+
+Page.prototype.properties = function(aliases) {
+  var props = this.field('properties') || {};
+  var category = this.category();
+  var name = this.name();
+  aliases = aliases || {};
+
+  if (category) props.category = category;
+  if (name) props.name = name;
+
+  for (var alias in aliases) {
+    var value = null == this[alias]
+      ? this.proxy('properties.' + alias)
+      : this[alias]();
+    if (null == value) continue;
+    props[aliases[alias]] = value;
+    if (alias !== aliases[alias]) delete props[alias];
+  }
+
+  return props;
+};
+
+/**
+ * Get the page fullName.
+ *
+ * @return {String}
+ */
+
+Page.prototype.fullName = function(){
+  var category = this.category();
+  var name = this.name();
+  return name && category
+    ? category + ' ' + name
+    : name;
+};
+
+/**
+ * Get event with `name`.
+ *
+ * @return {String}
+ */
+
+Page.prototype.event = function(name){
+  return name
+    ? 'Viewed ' + name + ' Page'
+    : 'Loaded a Page';
+};
+
+/**
+ * Convert this Page to a Track facade with `name`.
+ *
+ * @param {String} name
+ * @return {Track}
+ */
+
+Page.prototype.track = function(name){
+  var props = this.properties();
+  return new Track({
+    event: this.event(name),
+    timestamp: this.timestamp(),
+    context: this.context(),
+    properties: props
+  });
+};
+
+}, {"./utils":38,"./facade":29,"./track":33}],
+35: [function(require, module, exports) {
+
+var inherit = require('./utils').inherit;
+var Page = require('./page');
+var Track = require('./track');
+
+/**
+ * Expose `Screen` facade
+ */
+
+module.exports = Screen;
+
+/**
+ * Initialize new `Screen` facade with `dictionary`.
+ *
+ * @param {Object} dictionary
+ *   @param {String} category
+ *   @param {String} name
+ *   @param {Object} traits
+ *   @param {Object} options
+ */
+
+function Screen(dictionary){
+  Page.call(this, dictionary);
+}
+
+/**
+ * Inherit from `Page`
+ */
+
+inherit(Screen, Page);
+
+/**
+ * Get the facade's action.
+ *
+ * @return {String}
+ * @api public
+ */
+
+Screen.prototype.type =
+Screen.prototype.action = function(){
+  return 'screen';
+};
+
+/**
+ * Get event with `name`.
+ *
+ * @param {String} name
+ * @return {String}
+ * @api public
+ */
+
+Screen.prototype.event = function(name){
+  return name
+    ? 'Viewed ' + name + ' Screen'
+    : 'Loaded a Screen';
+};
+
+/**
+ * Convert this Screen.
+ *
+ * @param {String} name
+ * @return {Track}
+ * @api public
+ */
+
+Screen.prototype.track = function(name){
+  var props = this.properties();
+  return new Track({
+    event: this.event(name),
+    timestamp: this.timestamp(),
+    context: this.context(),
+    properties: props
+  });
+};
+
+}, {"./utils":38,"./page":34,"./track":33}],
+8: [function(require, module, exports) {
+
+module.exports = function after (times, func) {
+  // After 0, really?
+  if (times <= 0) return func();
+
+  // That's more like it.
+  return function() {
+    if (--times < 1) {
+      return func.apply(this, arguments);
+    }
+  };
+};
+}, {}],
+9: [function(require, module, exports) {
+
+try {
+  var bind = require('bind');
+} catch (e) {
+  var bind = require('bind-component');
+}
+
+var bindAll = require('bind-all');
+
+
+/**
+ * Expose `bind`.
+ */
+
+module.exports = exports = bind;
+
+
+/**
+ * Expose `bindAll`.
+ */
+
+exports.all = bindAll;
+
+
+/**
+ * Expose `bindMethods`.
+ */
+
+exports.methods = bindMethods;
+
+
+/**
+ * Bind `methods` on `obj` to always be called with the `obj` as context.
+ *
+ * @param {Object} obj
+ * @param {String} methods...
+ */
+
+function bindMethods (obj, methods) {
+  methods = [].slice.call(arguments, 1);
+  for (var i = 0, method; method = methods[i]; i++) {
+    obj[method] = bind(obj, obj[method]);
+  }
+  return obj;
+}
+}, {"bind":53,"bind-all":54}],
+53: [function(require, module, exports) {
+/**
+ * Slice reference.
+ */
+
+var slice = [].slice;
+
+/**
+ * Bind `obj` to `fn`.
+ *
+ * @param {Object} obj
+ * @param {Function|String} fn or string
+ * @return {Function}
+ * @api public
+ */
+
+module.exports = function(obj, fn){
+  if ('string' == typeof fn) fn = obj[fn];
+  if ('function' != typeof fn) throw new Error('bind() requires a function');
+  var args = slice.call(arguments, 2);
+  return function(){
+    return fn.apply(obj, args.concat(slice.call(arguments)));
+  }
+};
+
+}, {}],
+54: [function(require, module, exports) {
+
+try {
+  var bind = require('bind');
+  var type = require('type');
+} catch (e) {
+  var bind = require('bind-component');
+  var type = require('type-component');
+}
+
+module.exports = function (obj) {
+  for (var key in obj) {
+    var val = obj[key];
+    if (type(val) === 'function') obj[key] = bind(obj, obj[key]);
+  }
+  return obj;
+};
+}, {"bind":53,"type":45}],
+10: [function(require, module, exports) {
+var next = require('next-tick');
+
+
+/**
+ * Expose `callback`.
+ */
+
+module.exports = callback;
+
+
+/**
+ * Call an `fn` back synchronously if it exists.
+ *
+ * @param {Function} fn
+ */
+
+function callback (fn) {
+  if ('function' === typeof fn) fn();
+}
+
+
+/**
+ * Call an `fn` back asynchronously if it exists. If `wait` is ommitted, the
+ * `fn` will be called on next tick.
+ *
+ * @param {Function} fn
+ * @param {Number} wait (optional)
+ */
+
+callback.async = function (fn, wait) {
+  if ('function' !== typeof fn) return;
+  if (!wait) return next(fn);
+  setTimeout(fn, wait);
+};
+
+
+/**
+ * Symmetry.
+ */
+
+callback.sync = callback;
+
+}, {"next-tick":55}],
+55: [function(require, module, exports) {
+"use strict"
+
+if (typeof setImmediate == 'function') {
+  module.exports = function(f){ setImmediate(f) }
+}
+// legacy node.js
+else if (typeof process != 'undefined' && typeof process.nextTick == 'function') {
+  module.exports = process.nextTick
+}
+// fallback for other environments / postMessage behaves badly on IE8
+else if (typeof window == 'undefined' || window.ActiveXObject || !window.postMessage) {
+  module.exports = function(f){ setTimeout(f) };
+} else {
+  var q = [];
+
+  window.addEventListener('message', function(){
+    var i = 0;
+    while (i < q.length) {
+      try { q[i++](); }
+      catch (e) {
+        q = q.slice(i);
+        window.postMessage('tic!', '*');
+        throw e;
+      }
+    }
+    q.length = 0;
+  }, true);
+
+  module.exports = function(fn){
+    if (!q.length) window.postMessage('tic!', '*');
+    q.push(fn);
+  }
+}
+
+}, {}],
+11: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var type;
+
+try {
+  type = require('type');
+} catch(e){
+  type = require('type-component');
+}
+
+/**
+ * Module exports.
+ */
+
+module.exports = clone;
+
+/**
+ * Clones objects.
+ *
+ * @param {Mixed} any object
+ * @api public
+ */
+
+function clone(obj){
+  switch (type(obj)) {
+    case 'object':
+      var copy = {};
+      for (var key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          copy[key] = clone(obj[key]);
+        }
+      }
+      return copy;
+
+    case 'array':
+      var copy = new Array(obj.length);
+      for (var i = 0, l = obj.length; i < l; i++) {
+        copy[i] = clone(obj[i]);
+      }
+      return copy;
+
+    case 'regexp':
+      // from millermedeiros/amd-utils - MIT
+      var flags = '';
+      flags += obj.multiline ? 'm' : '';
+      flags += obj.global ? 'g' : '';
+      flags += obj.ignoreCase ? 'i' : '';
+      return new RegExp(obj.source, flags);
+
+    case 'date':
+      return new Date(obj.getTime());
+
+    default: // string, number, boolean, …
+      return obj;
+  }
+}
+
+}, {"type":45}],
+12: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -933,198 +3561,8 @@ module.exports = bind.all(new Cookie());
 
 module.exports.Cookie = Cookie;
 
-}, {"bind":16,"clone":18,"cookie":28,"debug":19,"defaults":20,"json":29,"top-domain":30}],
-16: [function(require, module, exports) {
-
-try {
-  var bind = require('bind');
-} catch (e) {
-  var bind = require('bind-component');
-}
-
-var bindAll = require('bind-all');
-
-
-/**
- * Expose `bind`.
- */
-
-module.exports = exports = bind;
-
-
-/**
- * Expose `bindAll`.
- */
-
-exports.all = bindAll;
-
-
-/**
- * Expose `bindMethods`.
- */
-
-exports.methods = bindMethods;
-
-
-/**
- * Bind `methods` on `obj` to always be called with the `obj` as context.
- *
- * @param {Object} obj
- * @param {String} methods...
- */
-
-function bindMethods (obj, methods) {
-  methods = [].slice.call(arguments, 1);
-  for (var i = 0, method; method = methods[i]; i++) {
-    obj[method] = bind(obj, obj[method]);
-  }
-  return obj;
-}
-}, {"bind":31,"bind-all":32}],
-31: [function(require, module, exports) {
-/**
- * Slice reference.
- */
-
-var slice = [].slice;
-
-/**
- * Bind `obj` to `fn`.
- *
- * @param {Object} obj
- * @param {Function|String} fn or string
- * @return {Function}
- * @api public
- */
-
-module.exports = function(obj, fn){
-  if ('string' == typeof fn) fn = obj[fn];
-  if ('function' != typeof fn) throw new Error('bind() requires a function');
-  var args = slice.call(arguments, 2);
-  return function(){
-    return fn.apply(obj, args.concat(slice.call(arguments)));
-  }
-};
-
-}, {}],
-32: [function(require, module, exports) {
-
-try {
-  var bind = require('bind');
-  var type = require('type');
-} catch (e) {
-  var bind = require('bind-component');
-  var type = require('type-component');
-}
-
-module.exports = function (obj) {
-  for (var key in obj) {
-    var val = obj[key];
-    if (type(val) === 'function') obj[key] = bind(obj, obj[key]);
-  }
-  return obj;
-};
-}, {"bind":31,"type":33}],
-33: [function(require, module, exports) {
-/**
- * toString ref.
- */
-
-var toString = Object.prototype.toString;
-
-/**
- * Return the type of `val`.
- *
- * @param {Mixed} val
- * @return {String}
- * @api public
- */
-
-module.exports = function(val){
-  switch (toString.call(val)) {
-    case '[object Date]': return 'date';
-    case '[object RegExp]': return 'regexp';
-    case '[object Arguments]': return 'arguments';
-    case '[object Array]': return 'array';
-    case '[object Error]': return 'error';
-  }
-
-  if (val === null) return 'null';
-  if (val === undefined) return 'undefined';
-  if (val !== val) return 'nan';
-  if (val && val.nodeType === 1) return 'element';
-
-  val = val.valueOf
-    ? val.valueOf()
-    : Object.prototype.valueOf.apply(val)
-
-  return typeof val;
-};
-
-}, {}],
-18: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var type;
-
-try {
-  type = require('type');
-} catch(e){
-  type = require('type-component');
-}
-
-/**
- * Module exports.
- */
-
-module.exports = clone;
-
-/**
- * Clones objects.
- *
- * @param {Mixed} any object
- * @api public
- */
-
-function clone(obj){
-  switch (type(obj)) {
-    case 'object':
-      var copy = {};
-      for (var key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          copy[key] = clone(obj[key]);
-        }
-      }
-      return copy;
-
-    case 'array':
-      var copy = new Array(obj.length);
-      for (var i = 0, l = obj.length; i < l; i++) {
-        copy[i] = clone(obj[i]);
-      }
-      return copy;
-
-    case 'regexp':
-      // from millermedeiros/amd-utils - MIT
-      var flags = '';
-      flags += obj.multiline ? 'm' : '';
-      flags += obj.global ? 'g' : '';
-      flags += obj.ignoreCase ? 'i' : '';
-      return new RegExp(obj.source, flags);
-
-    case 'date':
-      return new Date(obj.getTime());
-
-    default: // string, number, boolean, …
-      return obj;
-  }
-}
-
-}, {"type":33}],
-28: [function(require, module, exports) {
+}, {"bind":9,"clone":11,"cookie":56,"debug":13,"defaults":14,"json":57,"top-domain":58}],
+56: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -1248,16 +3686,515 @@ function decode(value) {
   }
 }
 
-}, {"debug":19}],
-19: [function(require, module, exports) {
+}, {"debug":59}],
+59: [function(require, module, exports) {
+
+/**
+ * This is the web browser implementation of `debug()`.
+ *
+ * Expose `debug()` as the module.
+ */
+
+exports = module.exports = require('./debug');
+exports.log = log;
+exports.formatArgs = formatArgs;
+exports.save = save;
+exports.load = load;
+exports.useColors = useColors;
+exports.storage = 'undefined' != typeof chrome
+               && 'undefined' != typeof chrome.storage
+                  ? chrome.storage.local
+                  : localstorage();
+
+/**
+ * Colors.
+ */
+
+exports.colors = [
+  'lightseagreen',
+  'forestgreen',
+  'goldenrod',
+  'dodgerblue',
+  'darkorchid',
+  'crimson'
+];
+
+/**
+ * Currently only WebKit-based Web Inspectors, Firefox >= v31,
+ * and the Firebug extension (any Firefox version) are known
+ * to support "%c" CSS customizations.
+ *
+ * TODO: add a `localStorage` variable to explicitly enable/disable colors
+ */
+
+function useColors() {
+  // is webkit? http://stackoverflow.com/a/16459606/376773
+  return ('WebkitAppearance' in document.documentElement.style) ||
+    // is firebug? http://stackoverflow.com/a/398120/376773
+    (window.console && (console.firebug || (console.exception && console.table))) ||
+    // is firefox >= v31?
+    // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
+    (navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31);
+}
+
+/**
+ * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
+ */
+
+exports.formatters.j = function(v) {
+  return JSON.stringify(v);
+};
+
+
+/**
+ * Colorize log arguments if enabled.
+ *
+ * @api public
+ */
+
+function formatArgs() {
+  var args = arguments;
+  var useColors = this.useColors;
+
+  args[0] = (useColors ? '%c' : '')
+    + this.namespace
+    + (useColors ? ' %c' : ' ')
+    + args[0]
+    + (useColors ? '%c ' : ' ')
+    + '+' + exports.humanize(this.diff);
+
+  if (!useColors) return args;
+
+  var c = 'color: ' + this.color;
+  args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
+
+  // the final "%c" is somewhat tricky, because there could be other
+  // arguments passed either before or after the %c, so we need to
+  // figure out the correct index to insert the CSS into
+  var index = 0;
+  var lastC = 0;
+  args[0].replace(/%[a-z%]/g, function(match) {
+    if ('%%' === match) return;
+    index++;
+    if ('%c' === match) {
+      // we only are interested in the *last* %c
+      // (the user may have provided their own)
+      lastC = index;
+    }
+  });
+
+  args.splice(lastC, 0, c);
+  return args;
+}
+
+/**
+ * Invokes `console.log()` when available.
+ * No-op when `console.log` is not a "function".
+ *
+ * @api public
+ */
+
+function log() {
+  // this hackery is required for IE8/9, where
+  // the `console.log` function doesn't have 'apply'
+  return 'object' === typeof console
+    && console.log
+    && Function.prototype.apply.call(console.log, console, arguments);
+}
+
+/**
+ * Save `namespaces`.
+ *
+ * @param {String} namespaces
+ * @api private
+ */
+
+function save(namespaces) {
+  try {
+    if (null == namespaces) {
+      exports.storage.removeItem('debug');
+    } else {
+      exports.storage.debug = namespaces;
+    }
+  } catch(e) {}
+}
+
+/**
+ * Load `namespaces`.
+ *
+ * @return {String} returns the previously persisted debug modes
+ * @api private
+ */
+
+function load() {
+  var r;
+  try {
+    r = exports.storage.debug;
+  } catch(e) {}
+  return r;
+}
+
+/**
+ * Enable namespaces listed in `localStorage.debug` initially.
+ */
+
+exports.enable(load());
+
+/**
+ * Localstorage attempts to return the localstorage.
+ *
+ * This is necessary because safari throws
+ * when a user disables cookies/localstorage
+ * and you attempt to access it.
+ *
+ * @return {LocalStorage}
+ * @api private
+ */
+
+function localstorage(){
+  try {
+    return window.localStorage;
+  } catch (e) {}
+}
+
+}, {"./debug":60}],
+60: [function(require, module, exports) {
+
+/**
+ * This is the common logic for both the Node.js and web browser
+ * implementations of `debug()`.
+ *
+ * Expose `debug()` as the module.
+ */
+
+exports = module.exports = debug;
+exports.coerce = coerce;
+exports.disable = disable;
+exports.enable = enable;
+exports.enabled = enabled;
+exports.humanize = require('ms');
+
+/**
+ * The currently active debug mode names, and names to skip.
+ */
+
+exports.names = [];
+exports.skips = [];
+
+/**
+ * Map of special "%n" handling functions, for the debug "format" argument.
+ *
+ * Valid key names are a single, lowercased letter, i.e. "n".
+ */
+
+exports.formatters = {};
+
+/**
+ * Previously assigned color.
+ */
+
+var prevColor = 0;
+
+/**
+ * Previous log timestamp.
+ */
+
+var prevTime;
+
+/**
+ * Select a color.
+ *
+ * @return {Number}
+ * @api private
+ */
+
+function selectColor() {
+  return exports.colors[prevColor++ % exports.colors.length];
+}
+
+/**
+ * Create a debugger with the given `namespace`.
+ *
+ * @param {String} namespace
+ * @return {Function}
+ * @api public
+ */
+
+function debug(namespace) {
+
+  // define the `disabled` version
+  function disabled() {
+  }
+  disabled.enabled = false;
+
+  // define the `enabled` version
+  function enabled() {
+
+    var self = enabled;
+
+    // set `diff` timestamp
+    var curr = +new Date();
+    var ms = curr - (prevTime || curr);
+    self.diff = ms;
+    self.prev = prevTime;
+    self.curr = curr;
+    prevTime = curr;
+
+    // add the `color` if not set
+    if (null == self.useColors) self.useColors = exports.useColors();
+    if (null == self.color && self.useColors) self.color = selectColor();
+
+    var args = Array.prototype.slice.call(arguments);
+
+    args[0] = exports.coerce(args[0]);
+
+    if ('string' !== typeof args[0]) {
+      // anything else let's inspect with %o
+      args = ['%o'].concat(args);
+    }
+
+    // apply any `formatters` transformations
+    var index = 0;
+    args[0] = args[0].replace(/%([a-z%])/g, function(match, format) {
+      // if we encounter an escaped % then don't increase the array index
+      if (match === '%%') return match;
+      index++;
+      var formatter = exports.formatters[format];
+      if ('function' === typeof formatter) {
+        var val = args[index];
+        match = formatter.call(self, val);
+
+        // now we need to remove `args[index]` since it's inlined in the `format`
+        args.splice(index, 1);
+        index--;
+      }
+      return match;
+    });
+
+    if ('function' === typeof exports.formatArgs) {
+      args = exports.formatArgs.apply(self, args);
+    }
+    var logFn = enabled.log || exports.log || console.log.bind(console);
+    logFn.apply(self, args);
+  }
+  enabled.enabled = true;
+
+  var fn = exports.enabled(namespace) ? enabled : disabled;
+
+  fn.namespace = namespace;
+
+  return fn;
+}
+
+/**
+ * Enables a debug mode by namespaces. This can include modes
+ * separated by a colon and wildcards.
+ *
+ * @param {String} namespaces
+ * @api public
+ */
+
+function enable(namespaces) {
+  exports.save(namespaces);
+
+  var split = (namespaces || '').split(/[\s,]+/);
+  var len = split.length;
+
+  for (var i = 0; i < len; i++) {
+    if (!split[i]) continue; // ignore empty strings
+    namespaces = split[i].replace(/\*/g, '.*?');
+    if (namespaces[0] === '-') {
+      exports.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
+    } else {
+      exports.names.push(new RegExp('^' + namespaces + '$'));
+    }
+  }
+}
+
+/**
+ * Disable debug output.
+ *
+ * @api public
+ */
+
+function disable() {
+  exports.enable('');
+}
+
+/**
+ * Returns true if the given mode name is enabled, false otherwise.
+ *
+ * @param {String} name
+ * @return {Boolean}
+ * @api public
+ */
+
+function enabled(name) {
+  var i, len;
+  for (i = 0, len = exports.skips.length; i < len; i++) {
+    if (exports.skips[i].test(name)) {
+      return false;
+    }
+  }
+  for (i = 0, len = exports.names.length; i < len; i++) {
+    if (exports.names[i].test(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Coerce `val`.
+ *
+ * @param {Mixed} val
+ * @return {Mixed}
+ * @api private
+ */
+
+function coerce(val) {
+  if (val instanceof Error) return val.stack || val.message;
+  return val;
+}
+
+}, {"ms":61}],
+61: [function(require, module, exports) {
+/**
+ * Helpers.
+ */
+
+var s = 1000;
+var m = s * 60;
+var h = m * 60;
+var d = h * 24;
+var y = d * 365.25;
+
+/**
+ * Parse or format the given `val`.
+ *
+ * Options:
+ *
+ *  - `long` verbose formatting [false]
+ *
+ * @param {String|Number} val
+ * @param {Object} options
+ * @return {String|Number}
+ * @api public
+ */
+
+module.exports = function(val, options){
+  options = options || {};
+  if ('string' == typeof val) return parse(val);
+  return options.long
+    ? long(val)
+    : short(val);
+};
+
+/**
+ * Parse the given `str` and return milliseconds.
+ *
+ * @param {String} str
+ * @return {Number}
+ * @api private
+ */
+
+function parse(str) {
+  str = '' + str;
+  if (str.length > 10000) return;
+  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
+  if (!match) return;
+  var n = parseFloat(match[1]);
+  var type = (match[2] || 'ms').toLowerCase();
+  switch (type) {
+    case 'years':
+    case 'year':
+    case 'yrs':
+    case 'yr':
+    case 'y':
+      return n * y;
+    case 'days':
+    case 'day':
+    case 'd':
+      return n * d;
+    case 'hours':
+    case 'hour':
+    case 'hrs':
+    case 'hr':
+    case 'h':
+      return n * h;
+    case 'minutes':
+    case 'minute':
+    case 'mins':
+    case 'min':
+    case 'm':
+      return n * m;
+    case 'seconds':
+    case 'second':
+    case 'secs':
+    case 'sec':
+    case 's':
+      return n * s;
+    case 'milliseconds':
+    case 'millisecond':
+    case 'msecs':
+    case 'msec':
+    case 'ms':
+      return n;
+  }
+}
+
+/**
+ * Short format for `ms`.
+ *
+ * @param {Number} ms
+ * @return {String}
+ * @api private
+ */
+
+function short(ms) {
+  if (ms >= d) return Math.round(ms / d) + 'd';
+  if (ms >= h) return Math.round(ms / h) + 'h';
+  if (ms >= m) return Math.round(ms / m) + 'm';
+  if (ms >= s) return Math.round(ms / s) + 's';
+  return ms + 'ms';
+}
+
+/**
+ * Long format for `ms`.
+ *
+ * @param {Number} ms
+ * @return {String}
+ * @api private
+ */
+
+function long(ms) {
+  return plural(ms, d, 'day')
+    || plural(ms, h, 'hour')
+    || plural(ms, m, 'minute')
+    || plural(ms, s, 'second')
+    || ms + ' ms';
+}
+
+/**
+ * Pluralization helper.
+ */
+
+function plural(ms, n, name) {
+  if (ms < n) return;
+  if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
+  return Math.ceil(ms / n) + ' ' + name + 's';
+}
+
+}, {}],
+13: [function(require, module, exports) {
 if ('undefined' == typeof window) {
   module.exports = require('./lib/debug');
 } else {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":34,"./debug":35}],
-34: [function(require, module, exports) {
+}, {"./lib/debug":62,"./debug":63}],
+62: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -1407,7 +4344,7 @@ function coerce(val) {
 }
 
 }, {}],
-35: [function(require, module, exports) {
+63: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -1547,7 +4484,7 @@ try {
 } catch(e){}
 
 }, {}],
-20: [function(require, module, exports) {
+14: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -1576,7 +4513,7 @@ var defaults = function (dest, src, recursive) {
 module.exports = defaults;
 
 }, {}],
-29: [function(require, module, exports) {
+57: [function(require, module, exports) {
 
 var json = window.JSON || {};
 var stringify = json.stringify;
@@ -1586,8 +4523,8 @@ module.exports = parse && stringify
   ? JSON
   : require('json-fallback');
 
-}, {"json-fallback":36}],
-36: [function(require, module, exports) {
+}, {"json-fallback":64}],
+64: [function(require, module, exports) {
 /*
     json2.js
     2014-02-04
@@ -2077,7 +5014,7 @@ module.exports = parse && stringify
 }());
 
 }, {}],
-30: [function(require, module, exports) {
+58: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2181,8 +5118,8 @@ domain.levels = function(url){
   return levels;
 };
 
-}, {"url":37,"cookie":38}],
-37: [function(require, module, exports) {
+}, {"url":65,"cookie":66}],
+65: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -2267,7 +5204,7 @@ function port (protocol){
 }
 
 }, {}],
-38: [function(require, module, exports) {
+66: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2400,8 +5337,8 @@ function decode(value) {
   }
 }
 
-}, {"debug":19}],
-7: [function(require, module, exports) {
+}, {"debug":13}],
+15: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2460,8 +5397,8 @@ module.exports = bind.all(new Group());
 
 module.exports.Group = Group;
 
-}, {"./entity":39,"bind":16,"debug":19,"inherit":40}],
-39: [function(require, module, exports) {
+}, {"./entity":67,"bind":9,"debug":13,"inherit":68}],
+67: [function(require, module, exports) {
 
 var clone = require('clone');
 var cookie = require('./cookie');
@@ -2700,8 +5637,25 @@ Entity.prototype.load = function() {
 };
 
 
-}, {"./cookie":6,"./memory":8,"./store":11,"clone":18,"debug":19,"defaults":20,"extend":41,"isodate-traverse":42}],
-8: [function(require, module, exports) {
+}, {"clone":11,"./cookie":12,"debug":13,"defaults":14,"extend":69,"./memory":19,"./store":26,"isodate-traverse":36}],
+69: [function(require, module, exports) {
+
+module.exports = function extend (object) {
+    // Takes an unlimited number of extenders.
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    // For each extender, copy their properties on our object.
+    for (var i = 0, source; source = args[i]; i++) {
+        if (!source) continue;
+        for (var property in source) {
+            object[property] = source[property];
+        }
+    }
+
+    return object;
+};
+}, {}],
+19: [function(require, module, exports) {
 /* eslint consistent-return:1 */
 
 /**
@@ -2767,8 +5721,8 @@ Memory.prototype.remove = function(key){
   return true;
 };
 
-}, {"bind":16,"clone":18}],
-11: [function(require, module, exports) {
+}, {"bind":9,"clone":11}],
+26: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2857,8 +5811,8 @@ module.exports = bind.all(new Store());
 
 module.exports.Store = Store;
 
-}, {"bind":16,"defaults":20,"store.js":43}],
-43: [function(require, module, exports) {
+}, {"bind":9,"defaults":14,"store.js":70}],
+70: [function(require, module, exports) {
 var json             = require('json')
   , store            = {}
   , win              = window
@@ -3010,98 +5964,17 @@ try {
 store.enabled = !store.disabled
 
 module.exports = store;
-}, {"json":29}],
-41: [function(require, module, exports) {
+}, {"json":57}],
+68: [function(require, module, exports) {
 
-module.exports = function extend (object) {
-    // Takes an unlimited number of extenders.
-    var args = Array.prototype.slice.call(arguments, 1);
-
-    // For each extender, copy their properties on our object.
-    for (var i = 0, source; source = args[i]; i++) {
-        if (!source) continue;
-        for (var property in source) {
-            object[property] = source[property];
-        }
-    }
-
-    return object;
+module.exports = function(a, b){
+  var fn = function(){};
+  fn.prototype = b.prototype;
+  a.prototype = new fn;
+  a.prototype.constructor = a;
 };
 }, {}],
-42: [function(require, module, exports) {
-
-var is = require('is');
-var isodate = require('isodate');
-var each;
-
-try {
-  each = require('each');
-} catch (err) {
-  each = require('each-component');
-}
-
-/**
- * Expose `traverse`.
- */
-
-module.exports = traverse;
-
-/**
- * Traverse an object or array, and return a clone with all ISO strings parsed
- * into Date objects.
- *
- * @param {Object} obj
- * @return {Object}
- */
-
-function traverse (input, strict) {
-  if (strict === undefined) strict = true;
-
-  if (is.object(input)) return object(input, strict);
-  if (is.array(input)) return array(input, strict);
-  return input;
-}
-
-/**
- * Object traverser.
- *
- * @param {Object} obj
- * @param {Boolean} strict
- * @return {Object}
- */
-
-function object (obj, strict) {
-  each(obj, function (key, val) {
-    if (isodate.is(val, strict)) {
-      obj[key] = isodate.parse(val);
-    } else if (is.object(val) || is.array(val)) {
-      traverse(val, strict);
-    }
-  });
-  return obj;
-}
-
-/**
- * Array traverser.
- *
- * @param {Array} arr
- * @param {Boolean} strict
- * @return {Array}
- */
-
-function array (arr, strict) {
-  each(arr, function (val, x) {
-    if (is.object(val)) {
-      traverse(val, strict);
-    } else if (isodate.is(val, strict)) {
-      arr[x] = isodate.parse(val);
-    }
-  });
-  return arr;
-}
-
-}, {"is":44,"isodate":45,"each":5}],
-44: [function(require, module, exports) {
+16: [function(require, module, exports) {
 
 var isEmpty = require('is-empty');
 
@@ -3177,198 +6050,110 @@ function generate (type) {
     return type === typeOf(value);
   };
 }
-}, {"is-empty":46,"type":33,"component-type":33}],
-46: [function(require, module, exports) {
+}, {"is-empty":44,"type":45,"component-type":45}],
+17: [function(require, module, exports) {
+module.exports = function isMeta (e) {
+    if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return true;
 
-/**
- * Expose `isEmpty`.
- */
+    // Logic that handles checks for the middle mouse button, based
+    // on [jQuery](https://github.com/jquery/jquery/blob/master/src/event.js#L466).
+    var which = e.which, button = e.button;
+    if (!which && button !== undefined) {
+      return (!button & 1) && (!button & 2) && (button & 4);
+    } else if (which === 2) {
+      return true;
+    }
 
-module.exports = isEmpty;
-
-
-/**
- * Has.
- */
-
-var has = Object.prototype.hasOwnProperty;
-
-
-/**
- * Test whether a value is "empty".
- *
- * @param {Mixed} val
- * @return {Boolean}
- */
-
-function isEmpty (val) {
-  if (null == val) return true;
-  if ('number' == typeof val) return 0 === val;
-  if (undefined !== val.length) return 0 === val.length;
-  for (var key in val) if (has.call(val, key)) return false;
-  return true;
-}
-}, {}],
-45: [function(require, module, exports) {
-
-/**
- * Matcher, slightly modified from:
- *
- * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
- */
-
-var matcher = /^(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?(?:([ T])(\d{2}):?(\d{2})(?::?(\d{2})(?:[,\.](\d{1,}))?)?(?:(Z)|([+\-])(\d{2})(?::?(\d{2}))?)?)?$/;
-
-
-/**
- * Convert an ISO date string to a date. Fallback to native `Date.parse`.
- *
- * https://github.com/csnover/js-iso8601/blob/lax/iso8601.js
- *
- * @param {String} iso
- * @return {Date}
- */
-
-exports.parse = function (iso) {
-  var numericKeys = [1, 5, 6, 7, 11, 12];
-  var arr = matcher.exec(iso);
-  var offset = 0;
-
-  // fallback to native parsing
-  if (!arr) return new Date(iso);
-
-  // remove undefined values
-  for (var i = 0, val; val = numericKeys[i]; i++) {
-    arr[val] = parseInt(arr[val], 10) || 0;
-  }
-
-  // allow undefined days and months
-  arr[2] = parseInt(arr[2], 10) || 1;
-  arr[3] = parseInt(arr[3], 10) || 1;
-
-  // month is 0-11
-  arr[2]--;
-
-  // allow abitrary sub-second precision
-  arr[8] = arr[8]
-    ? (arr[8] + '00').substring(0, 3)
-    : 0;
-
-  // apply timezone if one exists
-  if (arr[4] == ' ') {
-    offset = new Date().getTimezoneOffset();
-  } else if (arr[9] !== 'Z' && arr[10]) {
-    offset = arr[11] * 60 + arr[12];
-    if ('+' == arr[10]) offset = 0 - offset;
-  }
-
-  var millis = Date.UTC(arr[1], arr[2], arr[3], arr[5], arr[6] + offset, arr[7], arr[8]);
-  return new Date(millis);
-};
-
-
-/**
- * Checks whether a `string` is an ISO date string. `strict` mode requires that
- * the date string at least have a year, month and date.
- *
- * @param {String} string
- * @param {Boolean} strict
- * @return {Boolean}
- */
-
-exports.is = function (string, strict) {
-  if (strict && false === /^\d{4}-\d{2}-\d{2}/.test(string)) return false;
-  return matcher.test(string);
+    return false;
 };
 }, {}],
-5: [function(require, module, exports) {
+18: [function(require, module, exports) {
 
 /**
- * Module dependencies.
- */
-
-var type = require('type');
-
-/**
- * HOP reference.
+ * HOP ref.
  */
 
 var has = Object.prototype.hasOwnProperty;
 
 /**
- * Iterate the given `obj` and invoke `fn(val, i)`.
+ * Return own keys in `obj`.
  *
- * @param {String|Array|Object} obj
- * @param {Function} fn
+ * @param {Object} obj
+ * @return {Array}
  * @api public
  */
 
-module.exports = function(obj, fn){
-  switch (type(obj)) {
-    case 'array':
-      return array(obj, fn);
-    case 'object':
-      if ('number' == typeof obj.length) return array(obj, fn);
-      return object(obj, fn);
-    case 'string':
-      return string(obj, fn);
-  }
-};
-
-/**
- * Iterate string chars.
- *
- * @param {String} obj
- * @param {Function} fn
- * @api private
- */
-
-function string(obj, fn) {
-  for (var i = 0; i < obj.length; ++i) {
-    fn(obj.charAt(i), i);
-  }
-}
-
-/**
- * Iterate object keys.
- *
- * @param {Object} obj
- * @param {Function} fn
- * @api private
- */
-
-function object(obj, fn) {
+exports.keys = Object.keys || function(obj){
+  var keys = [];
   for (var key in obj) {
     if (has.call(obj, key)) {
-      fn(key, obj[key]);
+      keys.push(key);
     }
   }
-}
+  return keys;
+};
 
 /**
- * Iterate array-ish.
+ * Return own values in `obj`.
  *
- * @param {Array|Object} obj
- * @param {Function} fn
- * @api private
+ * @param {Object} obj
+ * @return {Array}
+ * @api public
  */
 
-function array(obj, fn) {
-  for (var i = 0; i < obj.length; ++i) {
-    fn(obj[i], i);
+exports.values = function(obj){
+  var vals = [];
+  for (var key in obj) {
+    if (has.call(obj, key)) {
+      vals.push(obj[key]);
+    }
   }
-}
-}, {"type":33}],
-40: [function(require, module, exports) {
+  return vals;
+};
 
-module.exports = function(a, b){
-  var fn = function(){};
-  fn.prototype = b.prototype;
-  a.prototype = new fn;
-  a.prototype.constructor = a;
+/**
+ * Merge `b` into `a`.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @return {Object} a
+ * @api public
+ */
+
+exports.merge = function(a, b){
+  for (var key in b) {
+    if (has.call(b, key)) {
+      a[key] = b[key];
+    }
+  }
+  return a;
+};
+
+/**
+ * Return length of `obj`.
+ *
+ * @param {Object} obj
+ * @return {Number}
+ * @api public
+ */
+
+exports.length = function(obj){
+  return exports.keys(obj).length;
+};
+
+/**
+ * Check if `obj` is empty.
+ *
+ * @param {Object} obj
+ * @return {Boolean}
+ * @api public
+ */
+
+exports.isEmpty = function(obj){
+  return 0 == exports.length(obj);
 };
 }, {}],
-9: [function(require, module, exports) {
+20: [function(require, module, exports) {
 
 /**
  * Module Dependencies.
@@ -3460,8 +6245,8 @@ function normalize(msg, list){
   }
 }
 
-}, {"debug":19,"defaults":20,"each":5,"includes":47,"is":21,"component/map":48}],
-47: [function(require, module, exports) {
+}, {"debug":13,"defaults":14,"each":4,"includes":71,"is":16,"component/map":72}],
+71: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -3551,8 +6336,8 @@ var includes = function includes(searchElement, collection) {
 
 module.exports = includes;
 
-}, {"each":49}],
-49: [function(require, module, exports) {
+}, {"each":73}],
+73: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -3694,8 +6479,8 @@ var each = function each(iterator, collection) {
 
 module.exports = each;
 
-}, {"keys":50}],
-50: [function(require, module, exports) {
+}, {"keys":74}],
+74: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -3875,84 +6660,7 @@ module.exports = function keys(source) {
 };
 
 }, {}],
-21: [function(require, module, exports) {
-
-var isEmpty = require('is-empty');
-
-try {
-  var typeOf = require('type');
-} catch (e) {
-  var typeOf = require('component-type');
-}
-
-
-/**
- * Types.
- */
-
-var types = [
-  'arguments',
-  'array',
-  'boolean',
-  'date',
-  'element',
-  'function',
-  'null',
-  'number',
-  'object',
-  'regexp',
-  'string',
-  'undefined'
-];
-
-
-/**
- * Expose type checkers.
- *
- * @param {Mixed} value
- * @return {Boolean}
- */
-
-for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
-
-
-/**
- * Add alias for `function` for old browsers.
- */
-
-exports.fn = exports['function'];
-
-
-/**
- * Expose `empty` check.
- */
-
-exports.empty = isEmpty;
-
-
-/**
- * Expose `nan` check.
- */
-
-exports.nan = function (val) {
-  return exports.number(val) && val != val;
-};
-
-
-/**
- * Generate a type checker.
- *
- * @param {String} type
- * @return {Function}
- */
-
-function generate (type) {
-  return function (value) {
-    return type === typeOf(value);
-  };
-}
-}, {"is-empty":46,"type":33,"component-type":33}],
-48: [function(require, module, exports) {
+72: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -3977,8 +6685,8 @@ module.exports = function(arr, fn){
   }
   return ret;
 };
-}, {"to-function":51}],
-51: [function(require, module, exports) {
+}, {"to-function":75}],
+75: [function(require, module, exports) {
 
 /**
  * Module Dependencies
@@ -4132,8 +6840,8 @@ function stripNested (prop, str, val) {
   });
 }
 
-}, {"props":52,"component-props":52}],
-52: [function(require, module, exports) {
+}, {"props":76,"component-props":76}],
+76: [function(require, module, exports) {
 /**
  * Global Names
  */
@@ -4221,7 +6929,50 @@ function prefixed(str) {
 }
 
 }, {}],
-10: [function(require, module, exports) {
+21: [function(require, module, exports) {
+
+/**
+ * Bind `el` event `type` to `fn`.
+ *
+ * @param {Element} el
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
+ * @return {Function}
+ * @api public
+ */
+
+exports.bind = function(el, type, fn, capture){
+  if (el.addEventListener) {
+    el.addEventListener(type, fn, capture || false);
+  } else {
+    el.attachEvent('on' + type, fn);
+  }
+  return fn;
+};
+
+/**
+ * Unbind `el` event `type`'s callback `fn`.
+ *
+ * @param {Element} el
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
+ * @return {Function}
+ * @api public
+ */
+
+exports.unbind = function(el, type, fn, capture){
+  if (el.removeEventListener) {
+    el.removeEventListener(type, fn, capture || false);
+  } else {
+    el.detachEvent('on' + type, fn);
+  }
+  return fn;
+};
+
+}, {}],
+22: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4284,8 +7035,8 @@ function canonicalUrl(search) {
 
 module.exports = pageDefaults;
 
-}, {"canonical":53,"includes":47,"url":54}],
-53: [function(require, module, exports) {
+}, {"canonical":77,"includes":71,"url":78}],
+77: [function(require, module, exports) {
 module.exports = function canonical () {
   var tags = document.getElementsByTagName('link');
   for (var i = 0, tag; tag = tags[i]; i++) {
@@ -4293,7 +7044,7 @@ module.exports = function canonical () {
   }
 };
 }, {}],
-54: [function(require, module, exports) {
+78: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -4378,7 +7129,182 @@ function port (protocol){
 }
 
 }, {}],
-12: [function(require, module, exports) {
+23: [function(require, module, exports) {
+'use strict';
+
+var objToString = Object.prototype.toString;
+
+// TODO: Move to lib
+var existy = function(val) {
+  return val != null;
+};
+
+// TODO: Move to lib
+var isArray = function(val) {
+  return objToString.call(val) === '[object Array]';
+};
+
+// TODO: Move to lib
+var isString = function(val) {
+   return typeof val === 'string' || objToString.call(val) === '[object String]';
+};
+
+// TODO: Move to lib
+var isObject = function(val) {
+  return val != null && typeof val === 'object';
+};
+
+/**
+ * Returns a copy of the new `object` containing only the specified properties.
+ *
+ * @name pick
+ * @api public
+ * @category Object
+ * @see {@link omit}
+ * @param {Array.<string>|string} props The property or properties to keep.
+ * @param {Object} object The object to iterate over.
+ * @return {Object} A new object containing only the specified properties from `object`.
+ * @example
+ * var person = { name: 'Tim', occupation: 'enchanter', fears: 'rabbits' };
+ *
+ * pick('name', person);
+ * //=> { name: 'Tim' }
+ *
+ * pick(['name', 'fears'], person);
+ * //=> { name: 'Tim', fears: 'rabbits' }
+ */
+
+var pick = function pick(props, object) {
+  if (!existy(object) || !isObject(object)) {
+    return {};
+  }
+
+  if (isString(props)) {
+    props = [props];
+  }
+
+  if (!isArray(props)) {
+    props = [];
+  }
+
+  var result = {};
+
+  for (var i = 0; i < props.length; i += 1) {
+    if (isString(props[i]) && props[i] in object) {
+      result[props[i]] = object[props[i]];
+    }
+  }
+
+  return result;
+};
+
+/**
+ * Exports.
+ */
+
+module.exports = pick;
+
+}, {}],
+24: [function(require, module, exports) {
+
+/**
+ * prevent default on the given `e`.
+ * 
+ * examples:
+ * 
+ *      anchor.onclick = prevent;
+ *      anchor.onclick = function(e){
+ *        if (something) return prevent(e);
+ *      };
+ * 
+ * @param {Event} e
+ */
+
+module.exports = function(e){
+  e = e || window.event
+  return e.preventDefault
+    ? e.preventDefault()
+    : e.returnValue = false;
+};
+
+}, {}],
+25: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var encode = encodeURIComponent;
+var decode = decodeURIComponent;
+var trim = require('trim');
+var type = require('type');
+
+/**
+ * Parse the given query `str`.
+ *
+ * @param {String} str
+ * @return {Object}
+ * @api public
+ */
+
+exports.parse = function(str){
+  if ('string' != typeof str) return {};
+
+  str = trim(str);
+  if ('' == str) return {};
+  if ('?' == str.charAt(0)) str = str.slice(1);
+
+  var obj = {};
+  var pairs = str.split('&');
+  for (var i = 0; i < pairs.length; i++) {
+    var parts = pairs[i].split('=');
+    var key = decode(parts[0]);
+    var m;
+
+    if (m = /(\w+)\[(\d+)\]/.exec(key)) {
+      obj[m[1]] = obj[m[1]] || [];
+      obj[m[1]][m[2]] = decode(parts[1]);
+      continue;
+    }
+
+    obj[parts[0]] = null == parts[1]
+      ? ''
+      : decode(parts[1]);
+  }
+
+  return obj;
+};
+
+/**
+ * Stringify the given `obj`.
+ *
+ * @param {Object} obj
+ * @return {String}
+ * @api public
+ */
+
+exports.stringify = function(obj){
+  if (!obj) return '';
+  var pairs = [];
+
+  for (var key in obj) {
+    var value = obj[key];
+
+    if ('array' == type(value)) {
+      for (var i = 0; i < value.length; ++i) {
+        pairs.push(encode(key + '[' + i + ']') + '=' + encode(value[i]));
+      }
+      continue;
+    }
+
+    pairs.push(encode(key) + '=' + encode(obj[key]));
+  }
+
+  return pairs.join('&');
+};
+
+}, {"trim":52,"type":45}],
+27: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4555,8 +7481,8 @@ module.exports = bind.all(new User());
 
 module.exports.User = User;
 
-}, {"./entity":39,"./cookie":6,"bind":16,"debug":19,"inherit":40,"cookie":28,"uuid":55}],
-55: [function(require, module, exports) {
+}, {"./entity":67,"bind":9,"./cookie":12,"debug":13,"inherit":68,"cookie":56,"uuid":79}],
+79: [function(require, module, exports) {
 
 /**
  * Taken straight from jed's gist: https://gist.github.com/982883
@@ -4586,2415 +7512,16 @@ module.exports = function uuid(a){
       )
 };
 }, {}],
-13: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var index = require('indexof');
-
-/**
- * Expose `Emitter`.
- */
-
-module.exports = Emitter;
-
-/**
- * Initialize a new `Emitter`.
- *
- * @api public
- */
-
-function Emitter(obj) {
-  if (obj) return mixin(obj);
-};
-
-/**
- * Mixin the emitter properties.
- *
- * @param {Object} obj
- * @return {Object}
- * @api private
- */
-
-function mixin(obj) {
-  for (var key in Emitter.prototype) {
-    obj[key] = Emitter.prototype[key];
-  }
-  return obj;
-}
-
-/**
- * Listen on the given `event` with `fn`.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.on =
-Emitter.prototype.addEventListener = function(event, fn){
-  this._callbacks = this._callbacks || {};
-  (this._callbacks[event] = this._callbacks[event] || [])
-    .push(fn);
-  return this;
-};
-
-/**
- * Adds an `event` listener that will be invoked a single
- * time then automatically removed.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.once = function(event, fn){
-  var self = this;
-  this._callbacks = this._callbacks || {};
-
-  function on() {
-    self.off(event, on);
-    fn.apply(this, arguments);
-  }
-
-  fn._off = on;
-  this.on(event, on);
-  return this;
-};
-
-/**
- * Remove the given callback for `event` or all
- * registered callbacks.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.off =
-Emitter.prototype.removeListener =
-Emitter.prototype.removeAllListeners =
-Emitter.prototype.removeEventListener = function(event, fn){
-  this._callbacks = this._callbacks || {};
-
-  // all
-  if (0 == arguments.length) {
-    this._callbacks = {};
-    return this;
-  }
-
-  // specific event
-  var callbacks = this._callbacks[event];
-  if (!callbacks) return this;
-
-  // remove all handlers
-  if (1 == arguments.length) {
-    delete this._callbacks[event];
-    return this;
-  }
-
-  // remove specific handler
-  var i = index(callbacks, fn._off || fn);
-  if (~i) callbacks.splice(i, 1);
-  return this;
-};
-
-/**
- * Emit `event` with the given args.
- *
- * @param {String} event
- * @param {Mixed} ...
- * @return {Emitter}
- */
-
-Emitter.prototype.emit = function(event){
-  this._callbacks = this._callbacks || {};
-  var args = [].slice.call(arguments, 1)
-    , callbacks = this._callbacks[event];
-
-  if (callbacks) {
-    callbacks = callbacks.slice(0);
-    for (var i = 0, len = callbacks.length; i < len; ++i) {
-      callbacks[i].apply(this, args);
-    }
-  }
-
-  return this;
-};
-
-/**
- * Return array of callbacks for `event`.
- *
- * @param {String} event
- * @return {Array}
- * @api public
- */
-
-Emitter.prototype.listeners = function(event){
-  this._callbacks = this._callbacks || {};
-  return this._callbacks[event] || [];
-};
-
-/**
- * Check if this emitter has `event` handlers.
- *
- * @param {String} event
- * @return {Boolean}
- * @api public
- */
-
-Emitter.prototype.hasListeners = function(event){
-  return !! this.listeners(event).length;
-};
-
-}, {"indexof":56}],
-56: [function(require, module, exports) {
-module.exports = function(arr, obj){
-  if (arr.indexOf) return arr.indexOf(obj);
-  for (var i = 0; i < arr.length; ++i) {
-    if (arr[i] === obj) return i;
-  }
-  return -1;
-};
-}, {}],
-14: [function(require, module, exports) {
-
-var Facade = require('./facade');
-
-/**
- * Expose `Facade` facade.
- */
-
-module.exports = Facade;
-
-/**
- * Expose specific-method facades.
- */
-
-Facade.Alias = require('./alias');
-Facade.Group = require('./group');
-Facade.Identify = require('./identify');
-Facade.Track = require('./track');
-Facade.Page = require('./page');
-Facade.Screen = require('./screen');
-
-}, {"./facade":57,"./alias":58,"./group":59,"./identify":60,"./track":61,"./page":62,"./screen":63}],
-57: [function(require, module, exports) {
-
-var traverse = require('isodate-traverse');
-var isEnabled = require('./is-enabled');
-var clone = require('./utils').clone;
-var type = require('./utils').type;
-var address = require('./address');
-var objCase = require('obj-case');
-var newDate = require('new-date');
-
-/**
- * Expose `Facade`.
- */
-
-module.exports = Facade;
-
-/**
- * Initialize a new `Facade` with an `obj` of arguments.
- *
- * @param {Object} obj
- */
-
-function Facade (obj) {
-  obj = clone(obj);
-  if (!obj.hasOwnProperty('timestamp')) obj.timestamp = new Date();
-  else obj.timestamp = newDate(obj.timestamp);
-  traverse(obj);
-  this.obj = obj;
-}
-
-/**
- * Mixin address traits.
- */
-
-address(Facade.prototype);
-
-/**
- * Return a proxy function for a `field` that will attempt to first use methods,
- * and fallback to accessing the underlying object directly. You can specify
- * deeply nested fields too like:
- *
- *   this.proxy('options.Librato');
- *
- * @param {String} field
- */
-
-Facade.prototype.proxy = function (field) {
-  var fields = field.split('.');
-  field = fields.shift();
-
-  // Call a function at the beginning to take advantage of facaded fields
-  var obj = this[field] || this.field(field);
-  if (!obj) return obj;
-  if (typeof obj === 'function') obj = obj.call(this) || {};
-  if (fields.length === 0) return transform(obj);
-
-  obj = objCase(obj, fields.join('.'));
-  return transform(obj);
-};
-
-/**
- * Directly access a specific `field` from the underlying object, returning a
- * clone so outsiders don't mess with stuff.
- *
- * @param {String} field
- * @return {Mixed}
- */
-
-Facade.prototype.field = function (field) {
-  var obj = this.obj[field];
-  return transform(obj);
-};
-
-/**
- * Utility method to always proxy a particular `field`. You can specify deeply
- * nested fields too like:
- *
- *   Facade.proxy('options.Librato');
- *
- * @param {String} field
- * @return {Function}
- */
-
-Facade.proxy = function (field) {
-  return function () {
-    return this.proxy(field);
-  };
-};
-
-/**
- * Utility method to directly access a `field`.
- *
- * @param {String} field
- * @return {Function}
- */
-
-Facade.field = function (field) {
-  return function () {
-    return this.field(field);
-  };
-};
-
-/**
- * Proxy multiple `path`.
- *
- * @param {String} path
- * @return {Array}
- */
-
-Facade.multi = function(path){
-  return function(){
-    var multi = this.proxy(path + 's');
-    if ('array' == type(multi)) return multi;
-    var one = this.proxy(path);
-    if (one) one = [clone(one)];
-    return one || [];
-  };
-};
-
-/**
- * Proxy one `path`.
- *
- * @param {String} path
- * @return {Mixed}
- */
-
-Facade.one = function(path){
-  return function(){
-    var one = this.proxy(path);
-    if (one) return one;
-    var multi = this.proxy(path + 's');
-    if ('array' == type(multi)) return multi[0];
-  };
-};
-
-/**
- * Get the basic json object of this facade.
- *
- * @return {Object}
- */
-
-Facade.prototype.json = function () {
-  var ret = clone(this.obj);
-  if (this.type) ret.type = this.type();
-  return ret;
-};
-
-/**
- * Get the options of a call (formerly called "context"). If you pass an
- * integration name, it will get the options for that specific integration, or
- * undefined if the integration is not enabled.
- *
- * @param {String} integration (optional)
- * @return {Object or Null}
- */
-
-Facade.prototype.context =
-Facade.prototype.options = function (integration) {
-  var options = clone(this.obj.options || this.obj.context) || {};
-  if (!integration) return clone(options);
-  if (!this.enabled(integration)) return;
-  var integrations = this.integrations();
-  var value = integrations[integration] || objCase(integrations, integration);
-  if ('boolean' == typeof value) value = {};
-  return value || {};
-};
-
-/**
- * Check whether an integration is enabled.
- *
- * @param {String} integration
- * @return {Boolean}
- */
-
-Facade.prototype.enabled = function (integration) {
-  var allEnabled = this.proxy('options.providers.all');
-  if (typeof allEnabled !== 'boolean') allEnabled = this.proxy('options.all');
-  if (typeof allEnabled !== 'boolean') allEnabled = this.proxy('integrations.all');
-  if (typeof allEnabled !== 'boolean') allEnabled = true;
-
-  var enabled = allEnabled && isEnabled(integration);
-  var options = this.integrations();
-
-  // If the integration is explicitly enabled or disabled, use that
-  // First, check options.providers for backwards compatibility
-  if (options.providers && options.providers.hasOwnProperty(integration)) {
-    enabled = options.providers[integration];
-  }
-
-  // Next, check for the integration's existence in 'options' to enable it.
-  // If the settings are a boolean, use that, otherwise it should be enabled.
-  if (options.hasOwnProperty(integration)) {
-    var settings = options[integration];
-    if (typeof settings === 'boolean') {
-      enabled = settings;
-    } else {
-      enabled = true;
-    }
-  }
-
-  return enabled ? true : false;
-};
-
-/**
- * Get all `integration` options.
- *
- * @param {String} integration
- * @return {Object}
- * @api private
- */
-
-Facade.prototype.integrations = function(){
-  return this.obj.integrations
-    || this.proxy('options.providers')
-    || this.options();
-};
-
-/**
- * Check whether the user is active.
- *
- * @return {Boolean}
- */
-
-Facade.prototype.active = function () {
-  var active = this.proxy('options.active');
-  if (active === null || active === undefined) active = true;
-  return active;
-};
-
-/**
- * Get `sessionId / anonymousId`.
- *
- * @return {Mixed}
- * @api public
- */
-
-Facade.prototype.sessionId =
-Facade.prototype.anonymousId = function(){
-  return this.field('anonymousId')
-    || this.field('sessionId');
-};
-
-/**
- * Get `groupId` from `context.groupId`.
- *
- * @return {String}
- * @api public
- */
-
-Facade.prototype.groupId = Facade.proxy('options.groupId');
-
-/**
- * Get the call's "super properties" which are just traits that have been
- * passed in as if from an identify call.
- *
- * @param {Object} aliases
- * @return {Object}
- */
-
-Facade.prototype.traits = function (aliases) {
-  var ret = this.proxy('options.traits') || {};
-  var id = this.userId();
-  aliases = aliases || {};
-
-  if (id) ret.id = id;
-
-  for (var alias in aliases) {
-    var value = null == this[alias]
-      ? this.proxy('options.traits.' + alias)
-      : this[alias]();
-    if (null == value) continue;
-    ret[aliases[alias]] = value;
-    delete ret[alias];
-  }
-
-  return ret;
-};
-
-/**
- * Add a convenient way to get the library name and version
- */
-
-Facade.prototype.library = function(){
-  var library = this.proxy('options.library');
-  if (!library) return { name: 'unknown', version: null };
-  if (typeof library === 'string') return { name: library, version: null };
-  return library;
-};
-
-/**
- * Setup some basic proxies.
- */
-
-Facade.prototype.userId = Facade.field('userId');
-Facade.prototype.channel = Facade.field('channel');
-Facade.prototype.timestamp = Facade.field('timestamp');
-Facade.prototype.userAgent = Facade.proxy('options.userAgent');
-Facade.prototype.ip = Facade.proxy('options.ip');
-
-/**
- * Return the cloned and traversed object
- *
- * @param {Mixed} obj
- * @return {Mixed}
- */
-
-function transform(obj){
-  var cloned = clone(obj);
-  return cloned;
-}
-
-}, {"./is-enabled":64,"./utils":65,"./address":66,"isodate-traverse":42,"obj-case":67,"new-date":68}],
-64: [function(require, module, exports) {
-
-/**
- * A few integrations are disabled by default. They must be explicitly
- * enabled by setting options[Provider] = true.
- */
-
-var disabled = {
-  Salesforce: true
-};
-
-/**
- * Check whether an integration should be enabled by default.
- *
- * @param {String} integration
- * @return {Boolean}
- */
-
-module.exports = function (integration) {
-  return ! disabled[integration];
-};
-}, {}],
-65: [function(require, module, exports) {
-
-/**
- * TODO: use component symlink, everywhere ?
- */
-
-try {
-  exports.inherit = require('inherit');
-  exports.clone = require('clone');
-  exports.type = require('type');
-} catch (e) {
-  exports.inherit = require('inherit-component');
-  exports.clone = require('clone-component');
-  exports.type = require('type-component');
-}
-
-}, {"inherit":69,"clone":70,"type":33}],
-69: [function(require, module, exports) {
-
-module.exports = function(a, b){
-  var fn = function(){};
-  fn.prototype = b.prototype;
-  a.prototype = new fn;
-  a.prototype.constructor = a;
-};
-}, {}],
-70: [function(require, module, exports) {
-/**
- * Module dependencies.
- */
-
-var type;
-try {
-  type = require('component-type');
-} catch (_) {
-  type = require('type');
-}
-
-/**
- * Module exports.
- */
-
-module.exports = clone;
-
-/**
- * Clones objects.
- *
- * @param {Mixed} any object
- * @api public
- */
-
-function clone(obj){
-  switch (type(obj)) {
-    case 'object':
-      var copy = {};
-      for (var key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          copy[key] = clone(obj[key]);
-        }
-      }
-      return copy;
-
-    case 'array':
-      var copy = new Array(obj.length);
-      for (var i = 0, l = obj.length; i < l; i++) {
-        copy[i] = clone(obj[i]);
-      }
-      return copy;
-
-    case 'regexp':
-      // from millermedeiros/amd-utils - MIT
-      var flags = '';
-      flags += obj.multiline ? 'm' : '';
-      flags += obj.global ? 'g' : '';
-      flags += obj.ignoreCase ? 'i' : '';
-      return new RegExp(obj.source, flags);
-
-    case 'date':
-      return new Date(obj.getTime());
-
-    default: // string, number, boolean, …
-      return obj;
-  }
-}
-
-}, {"component-type":33,"type":33}],
-66: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var get = require('obj-case');
-
-/**
- * Add address getters to `proto`.
- *
- * @param {Function} proto
- */
-
-module.exports = function(proto){
-  proto.zip = trait('postalCode', 'zip');
-  proto.country = trait('country');
-  proto.street = trait('street');
-  proto.state = trait('state');
-  proto.city = trait('city');
-
-  function trait(a, b){
-    return function(){
-      var traits = this.traits();
-      var props = this.properties ? this.properties() : {};
-
-      return get(traits, 'address.' + a)
-        || get(traits, a)
-        || (b ? get(traits, 'address.' + b) : null)
-        || (b ? get(traits, b) : null)
-        || get(props, 'address.' + a)
-        || get(props, a)
-        || (b ? get(props, 'address.' + b) : null)
-        || (b ? get(props, b) : null);
-    };
-  }
-};
-
-}, {"obj-case":67}],
-67: [function(require, module, exports) {
-
-var identity = function(_){ return _; };
-
-
-/**
- * Module exports, export
- */
-
-module.exports = multiple(find);
-module.exports.find = module.exports;
-
-
-/**
- * Export the replacement function, return the modified object
- */
-
-module.exports.replace = function (obj, key, val, options) {
-  multiple(replace).call(this, obj, key, val, options);
-  return obj;
-};
-
-
-/**
- * Export the delete function, return the modified object
- */
-
-module.exports.del = function (obj, key, options) {
-  multiple(del).call(this, obj, key, null, options);
-  return obj;
-};
-
-
-/**
- * Compose applying the function to a nested key
- */
-
-function multiple (fn) {
-  return function (obj, path, val, options) {
-    var normalize = options && isFunction(options.normalizer) ? options.normalizer : defaultNormalize;
-    path = normalize(path);
-
-    var key;
-    var finished = false;
-
-    while (!finished) loop();
-
-    function loop() {
-      for (key in obj) {
-        var normalizedKey = normalize(key);
-        if (0 === path.indexOf(normalizedKey)) {
-          var temp = path.substr(normalizedKey.length);
-          if (temp.charAt(0) === '.' || temp.length === 0) {
-            path = temp.substr(1);
-            var child = obj[key];
-
-            // we're at the end and there is nothing.
-            if (null == child) {
-              finished = true;
-              return;
-            }
-
-            // we're at the end and there is something.
-            if (!path.length) {
-              finished = true;
-              return;
-            }
-
-            // step into child
-            obj = child;
-
-            // but we're done here
-            return;
-          }
-        }
-      }
-
-      key = undefined;
-      // if we found no matching properties
-      // on the current object, there's no match.
-      finished = true;
-    }
-
-    if (!key) return;
-    if (null == obj) return obj;
-
-    // the `obj` and `key` is one above the leaf object and key, so
-    // start object: { a: { 'b.c': 10 } }
-    // end object: { 'b.c': 10 }
-    // end key: 'b.c'
-    // this way, you can do `obj[key]` and get `10`.
-    return fn(obj, key, val);
-  };
-}
-
-
-/**
- * Find an object by its key
- *
- * find({ first_name : 'Calvin' }, 'firstName')
- */
-
-function find (obj, key) {
-  if (obj.hasOwnProperty(key)) return obj[key];
-}
-
-
-/**
- * Delete a value for a given key
- *
- * del({ a : 'b', x : 'y' }, 'X' }) -> { a : 'b' }
- */
-
-function del (obj, key) {
-  if (obj.hasOwnProperty(key)) delete obj[key];
-  return obj;
-}
-
-
-/**
- * Replace an objects existing value with a new one
- *
- * replace({ a : 'b' }, 'a', 'c') -> { a : 'c' }
- */
-
-function replace (obj, key, val) {
-  if (obj.hasOwnProperty(key)) obj[key] = val;
-  return obj;
-}
-
-/**
- * Normalize a `dot.separated.path`.
- *
- * A.HELL(!*&#(!)O_WOR   LD.bar => ahelloworldbar
- *
- * @param {String} path
- * @return {String}
- */
-
-function defaultNormalize(path) {
-  return path.replace(/[^a-zA-Z0-9\.]+/g, '').toLowerCase();
-}
-
-/**
- * Check if a value is a function.
- *
- * @param {*} val
- * @return {boolean} Returns `true` if `val` is a function, otherwise `false`.
- */
-
-function isFunction(val) {
-  return typeof val === 'function';
-}
-
-}, {}],
-68: [function(require, module, exports) {
-
-var is = require('is');
-var isodate = require('isodate');
-var milliseconds = require('./milliseconds');
-var seconds = require('./seconds');
-
-
-/**
- * Returns a new Javascript Date object, allowing a variety of extra input types
- * over the native Date constructor.
- *
- * @param {Date|String|Number} val
- */
-
-module.exports = function newDate (val) {
-  if (is.date(val)) return val;
-  if (is.number(val)) return new Date(toMs(val));
-
-  // date strings
-  if (isodate.is(val)) return isodate.parse(val);
-  if (milliseconds.is(val)) return milliseconds.parse(val);
-  if (seconds.is(val)) return seconds.parse(val);
-
-  // fallback to Date.parse
-  return new Date(val);
-};
-
-
-/**
- * If the number passed val is seconds from the epoch, turn it into milliseconds.
- * Milliseconds would be greater than 31557600000 (December 31, 1970).
- *
- * @param {Number} num
- */
-
-function toMs (num) {
-  if (num < 31557600000) return num * 1000;
-  return num;
-}
-}, {"./milliseconds":71,"./seconds":72,"is":73,"isodate":45}],
-71: [function(require, module, exports) {
-
-/**
- * Matcher.
- */
-
-var matcher = /\d{13}/;
-
-
-/**
- * Check whether a string is a millisecond date string.
- *
- * @param {String} string
- * @return {Boolean}
- */
-
-exports.is = function (string) {
-  return matcher.test(string);
-};
-
-
-/**
- * Convert a millisecond string to a date.
- *
- * @param {String} millis
- * @return {Date}
- */
-
-exports.parse = function (millis) {
-  millis = parseInt(millis, 10);
-  return new Date(millis);
-};
-}, {}],
-72: [function(require, module, exports) {
-
-/**
- * Matcher.
- */
-
-var matcher = /\d{10}/;
-
-
-/**
- * Check whether a string is a second date string.
- *
- * @param {String} string
- * @return {Boolean}
- */
-
-exports.is = function (string) {
-  return matcher.test(string);
-};
-
-
-/**
- * Convert a second string to a date.
- *
- * @param {String} seconds
- * @return {Date}
- */
-
-exports.parse = function (seconds) {
-  var millis = parseInt(seconds, 10) * 1000;
-  return new Date(millis);
-};
-}, {}],
-73: [function(require, module, exports) {
-
-var isEmpty = require('is-empty')
-  , typeOf = require('type');
-
-
-/**
- * Types.
- */
-
-var types = [
-  'arguments',
-  'array',
-  'boolean',
-  'date',
-  'element',
-  'function',
-  'null',
-  'number',
-  'object',
-  'regexp',
-  'string',
-  'undefined'
-];
-
-
-/**
- * Expose type checkers.
- *
- * @param {Mixed} value
- * @return {Boolean}
- */
-
-for (var i = 0, type; type = types[i]; i++) exports[type] = generate(type);
-
-
-/**
- * Add alias for `function` for old browsers.
- */
-
-exports.fn = exports['function'];
-
-
-/**
- * Expose `empty` check.
- */
-
-exports.empty = isEmpty;
-
-
-/**
- * Expose `nan` check.
- */
-
-exports.nan = function (val) {
-  return exports.number(val) && val != val;
-};
-
-
-/**
- * Generate a type checker.
- *
- * @param {String} type
- * @return {Function}
- */
-
-function generate (type) {
-  return function (value) {
-    return type === typeOf(value);
-  };
-}
-}, {"is-empty":46,"type":33}],
-58: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var inherit = require('./utils').inherit;
-var Facade = require('./facade');
-
-/**
- * Expose `Alias` facade.
- */
-
-module.exports = Alias;
-
-/**
- * Initialize a new `Alias` facade with a `dictionary` of arguments.
- *
- * @param {Object} dictionary
- *   @property {String} from
- *   @property {String} to
- *   @property {Object} options
- */
-
-function Alias (dictionary) {
-  Facade.call(this, dictionary);
-}
-
-/**
- * Inherit from `Facade`.
- */
-
-inherit(Alias, Facade);
-
-/**
- * Return type of facade.
- *
- * @return {String}
- */
-
-Alias.prototype.type =
-Alias.prototype.action = function () {
-  return 'alias';
-};
-
-/**
- * Get `previousId`.
- *
- * @return {Mixed}
- * @api public
- */
-
-Alias.prototype.from =
-Alias.prototype.previousId = function(){
-  return this.field('previousId')
-    || this.field('from');
-};
-
-/**
- * Get `userId`.
- *
- * @return {String}
- * @api public
- */
-
-Alias.prototype.to =
-Alias.prototype.userId = function(){
-  return this.field('userId')
-    || this.field('to');
-};
-
-}, {"./utils":65,"./facade":57}],
-59: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var inherit = require('./utils').inherit;
-var address = require('./address');
-var isEmail = require('is-email');
-var newDate = require('new-date');
-var Facade = require('./facade');
-
-/**
- * Expose `Group` facade.
- */
-
-module.exports = Group;
-
-/**
- * Initialize a new `Group` facade with a `dictionary` of arguments.
- *
- * @param {Object} dictionary
- *   @param {String} userId
- *   @param {String} groupId
- *   @param {Object} properties
- *   @param {Object} options
- */
-
-function Group (dictionary) {
-  Facade.call(this, dictionary);
-}
-
-/**
- * Inherit from `Facade`
- */
-
-inherit(Group, Facade);
-
-/**
- * Get the facade's action.
- */
-
-Group.prototype.type =
-Group.prototype.action = function () {
-  return 'group';
-};
-
-/**
- * Setup some basic proxies.
- */
-
-Group.prototype.groupId = Facade.field('groupId');
-
-/**
- * Get created or createdAt.
- *
- * @return {Date}
- */
-
-Group.prototype.created = function(){
-  var created = this.proxy('traits.createdAt')
-    || this.proxy('traits.created')
-    || this.proxy('properties.createdAt')
-    || this.proxy('properties.created');
-
-  if (created) return newDate(created);
-};
-
-/**
- * Get the group's email, falling back to the group ID if it's a valid email.
- *
- * @return {String}
- */
-
-Group.prototype.email = function () {
-  var email = this.proxy('traits.email');
-  if (email) return email;
-  var groupId = this.groupId();
-  if (isEmail(groupId)) return groupId;
-};
-
-/**
- * Get the group's traits.
- *
- * @param {Object} aliases
- * @return {Object}
- */
-
-Group.prototype.traits = function (aliases) {
-  var ret = this.properties();
-  var id = this.groupId();
-  aliases = aliases || {};
-
-  if (id) ret.id = id;
-
-  for (var alias in aliases) {
-    var value = null == this[alias]
-      ? this.proxy('traits.' + alias)
-      : this[alias]();
-    if (null == value) continue;
-    ret[aliases[alias]] = value;
-    delete ret[alias];
-  }
-
-  return ret;
-};
-
-/**
- * Special traits.
- */
-
-Group.prototype.name = Facade.proxy('traits.name');
-Group.prototype.industry = Facade.proxy('traits.industry');
-Group.prototype.employees = Facade.proxy('traits.employees');
-
-/**
- * Get traits or properties.
- *
- * TODO: remove me
- *
- * @return {Object}
- */
-
-Group.prototype.properties = function(){
-  return this.field('traits')
-    || this.field('properties')
-    || {};
-};
-
-}, {"./utils":65,"./address":66,"./facade":57,"is-email":74,"new-date":68}],
-74: [function(require, module, exports) {
-
-/**
- * Expose `isEmail`.
- */
-
-module.exports = isEmail;
-
-
-/**
- * Email address matcher.
- */
-
-var matcher = /.+\@.+\..+/;
-
-
-/**
- * Loosely validate an email address.
- *
- * @param {String} string
- * @return {Boolean}
- */
-
-function isEmail (string) {
-  return matcher.test(string);
-}
-}, {}],
-60: [function(require, module, exports) {
-
-var address = require('./address');
-var Facade = require('./facade');
-var isEmail = require('is-email');
-var newDate = require('new-date');
-var utils = require('./utils');
-var get = require('obj-case');
-var trim = require('trim');
-var inherit = utils.inherit;
-var clone = utils.clone;
-var type = utils.type;
-
-/**
- * Expose `Idenfity` facade.
- */
-
-module.exports = Identify;
-
-/**
- * Initialize a new `Identify` facade with a `dictionary` of arguments.
- *
- * @param {Object} dictionary
- *   @param {String} userId
- *   @param {String} sessionId
- *   @param {Object} traits
- *   @param {Object} options
- */
-
-function Identify (dictionary) {
-  Facade.call(this, dictionary);
-}
-
-/**
- * Inherit from `Facade`.
- */
-
-inherit(Identify, Facade);
-
-/**
- * Get the facade's action.
- */
-
-Identify.prototype.type =
-Identify.prototype.action = function () {
-  return 'identify';
-};
-
-/**
- * Get the user's traits.
- *
- * @param {Object} aliases
- * @return {Object}
- */
-
-Identify.prototype.traits = function (aliases) {
-  var ret = this.field('traits') || {};
-  var id = this.userId();
-  aliases = aliases || {};
-
-  if (id) ret.id = id;
-
-  for (var alias in aliases) {
-    var value = null == this[alias]
-      ? this.proxy('traits.' + alias)
-      : this[alias]();
-    if (null == value) continue;
-    ret[aliases[alias]] = value;
-    if (alias !== aliases[alias]) delete ret[alias];
-  }
-
-  return ret;
-};
-
-/**
- * Get the user's email, falling back to their user ID if it's a valid email.
- *
- * @return {String}
- */
-
-Identify.prototype.email = function () {
-  var email = this.proxy('traits.email');
-  if (email) return email;
-
-  var userId = this.userId();
-  if (isEmail(userId)) return userId;
-};
-
-/**
- * Get the user's created date, optionally looking for `createdAt` since lots of
- * people do that instead.
- *
- * @return {Date or Undefined}
- */
-
-Identify.prototype.created = function () {
-  var created = this.proxy('traits.created') || this.proxy('traits.createdAt');
-  if (created) return newDate(created);
-};
-
-/**
- * Get the company created date.
- *
- * @return {Date or undefined}
- */
-
-Identify.prototype.companyCreated = function(){
-  var created = this.proxy('traits.company.created')
-    || this.proxy('traits.company.createdAt');
-
-  if (created) return newDate(created);
-};
-
-/**
- * Get the user's name, optionally combining a first and last name if that's all
- * that was provided.
- *
- * @return {String or Undefined}
- */
-
-Identify.prototype.name = function () {
-  var name = this.proxy('traits.name');
-  if (typeof name === 'string') return trim(name);
-
-  var firstName = this.firstName();
-  var lastName = this.lastName();
-  if (firstName && lastName) return trim(firstName + ' ' + lastName);
-};
-
-/**
- * Get the user's first name, optionally splitting it out of a single name if
- * that's all that was provided.
- *
- * @return {String or Undefined}
- */
-
-Identify.prototype.firstName = function () {
-  var firstName = this.proxy('traits.firstName');
-  if (typeof firstName === 'string') return trim(firstName);
-
-  var name = this.proxy('traits.name');
-  if (typeof name === 'string') return trim(name).split(' ')[0];
-};
-
-/**
- * Get the user's last name, optionally splitting it out of a single name if
- * that's all that was provided.
- *
- * @return {String or Undefined}
- */
-
-Identify.prototype.lastName = function () {
-  var lastName = this.proxy('traits.lastName');
-  if (typeof lastName === 'string') return trim(lastName);
-
-  var name = this.proxy('traits.name');
-  if (typeof name !== 'string') return;
-
-  var space = trim(name).indexOf(' ');
-  if (space === -1) return;
-
-  return trim(name.substr(space + 1));
-};
-
-/**
- * Get the user's unique id.
- *
- * @return {String or undefined}
- */
-
-Identify.prototype.uid = function(){
-  return this.userId()
-    || this.username()
-    || this.email();
-};
-
-/**
- * Get description.
- *
- * @return {String}
- */
-
-Identify.prototype.description = function(){
-  return this.proxy('traits.description')
-    || this.proxy('traits.background');
-};
-
-/**
- * Get the age.
- *
- * If the age is not explicitly set
- * the method will compute it from `.birthday()`
- * if possible.
- *
- * @return {Number}
- */
-
-Identify.prototype.age = function(){
-  var date = this.birthday();
-  var age = get(this.traits(), 'age');
-  if (null != age) return age;
-  if ('date' != type(date)) return;
-  var now = new Date;
-  return now.getFullYear() - date.getFullYear();
-};
-
-/**
- * Get the avatar.
- *
- * .photoUrl needed because help-scout
- * implementation uses `.avatar || .photoUrl`.
- *
- * .avatarUrl needed because trakio uses it.
- *
- * @return {Mixed}
- */
-
-Identify.prototype.avatar = function(){
-  var traits = this.traits();
-  return get(traits, 'avatar')
-    || get(traits, 'photoUrl')
-    || get(traits, 'avatarUrl');
-};
-
-/**
- * Get the position.
- *
- * .jobTitle needed because some integrations use it.
- *
- * @return {Mixed}
- */
-
-Identify.prototype.position = function(){
-  var traits = this.traits();
-  return get(traits, 'position') || get(traits, 'jobTitle');
-};
-
-/**
- * Setup sme basic "special" trait proxies.
- */
-
-Identify.prototype.username = Facade.proxy('traits.username');
-Identify.prototype.website = Facade.one('traits.website');
-Identify.prototype.websites = Facade.multi('traits.website');
-Identify.prototype.phone = Facade.one('traits.phone');
-Identify.prototype.phones = Facade.multi('traits.phone');
-Identify.prototype.address = Facade.proxy('traits.address');
-Identify.prototype.gender = Facade.proxy('traits.gender');
-Identify.prototype.birthday = Facade.proxy('traits.birthday');
-
-}, {"./address":66,"./facade":57,"./utils":65,"is-email":74,"new-date":68,"obj-case":67,"trim":75}],
-75: [function(require, module, exports) {
-
-exports = module.exports = trim;
-
-function trim(str){
-  if (str.trim) return str.trim();
-  return str.replace(/^\s*|\s*$/g, '');
-}
-
-exports.left = function(str){
-  if (str.trimLeft) return str.trimLeft();
-  return str.replace(/^\s*/, '');
-};
-
-exports.right = function(str){
-  if (str.trimRight) return str.trimRight();
-  return str.replace(/\s*$/, '');
-};
-
-}, {}],
-61: [function(require, module, exports) {
-
-var inherit = require('./utils').inherit;
-var clone = require('./utils').clone;
-var type = require('./utils').type;
-var Facade = require('./facade');
-var Identify = require('./identify');
-var isEmail = require('is-email');
-var get = require('obj-case');
-
-/**
- * Expose `Track` facade.
- */
-
-module.exports = Track;
-
-/**
- * Initialize a new `Track` facade with a `dictionary` of arguments.
- *
- * @param {object} dictionary
- *   @property {String} event
- *   @property {String} userId
- *   @property {String} sessionId
- *   @property {Object} properties
- *   @property {Object} options
- */
-
-function Track (dictionary) {
-  Facade.call(this, dictionary);
-}
-
-/**
- * Inherit from `Facade`.
- */
-
-inherit(Track, Facade);
-
-/**
- * Return the facade's action.
- *
- * @return {String}
- */
-
-Track.prototype.type =
-Track.prototype.action = function () {
-  return 'track';
-};
-
-/**
- * Setup some basic proxies.
- */
-
-Track.prototype.event = Facade.field('event');
-Track.prototype.value = Facade.proxy('properties.value');
-
-/**
- * Misc
- */
-
-Track.prototype.category = Facade.proxy('properties.category');
-
-/**
- * Ecommerce
- */
-
-Track.prototype.id = Facade.proxy('properties.id');
-Track.prototype.sku = Facade.proxy('properties.sku');
-Track.prototype.tax = Facade.proxy('properties.tax');
-Track.prototype.name = Facade.proxy('properties.name');
-Track.prototype.price = Facade.proxy('properties.price');
-Track.prototype.total = Facade.proxy('properties.total');
-Track.prototype.coupon = Facade.proxy('properties.coupon');
-Track.prototype.shipping = Facade.proxy('properties.shipping');
-Track.prototype.discount = Facade.proxy('properties.discount');
-
-/**
- * Description
- */
-
-Track.prototype.description = Facade.proxy('properties.description');
-
-/**
- * Plan
- */
-
-Track.prototype.plan = Facade.proxy('properties.plan');
-
-/**
- * Order id.
- *
- * @return {String}
- * @api public
- */
-
-Track.prototype.orderId = function(){
-  return this.proxy('properties.id')
-    || this.proxy('properties.orderId');
-};
-
-/**
- * Get subtotal.
- *
- * @return {Number}
- */
-
-Track.prototype.subtotal = function(){
-  var subtotal = get(this.properties(), 'subtotal');
-  var total = this.total();
-  var n;
-
-  if (subtotal) return subtotal;
-  if (!total) return 0;
-  if (n = this.tax()) total -= n;
-  if (n = this.shipping()) total -= n;
-  if (n = this.discount()) total += n;
-
-  return total;
-};
-
-/**
- * Get products.
- *
- * @return {Array}
- */
-
-Track.prototype.products = function(){
-  var props = this.properties();
-  var products = get(props, 'products');
-  return 'array' == type(products)
-    ? products
-    : [];
-};
-
-/**
- * Get quantity.
- *
- * @return {Number}
- */
-
-Track.prototype.quantity = function(){
-  var props = this.obj.properties || {};
-  return props.quantity || 1;
-};
-
-/**
- * Get currency.
- *
- * @return {String}
- */
-
-Track.prototype.currency = function(){
-  var props = this.obj.properties || {};
-  return props.currency || 'USD';
-};
-
-/**
- * BACKWARDS COMPATIBILITY: should probably re-examine where these come from.
- */
-
-Track.prototype.referrer = Facade.proxy('properties.referrer');
-Track.prototype.query = Facade.proxy('options.query');
-
-/**
- * Get the call's properties.
- *
- * @param {Object} aliases
- * @return {Object}
- */
-
-Track.prototype.properties = function (aliases) {
-  var ret = this.field('properties') || {};
-  aliases = aliases || {};
-
-  for (var alias in aliases) {
-    var value = null == this[alias]
-      ? this.proxy('properties.' + alias)
-      : this[alias]();
-    if (null == value) continue;
-    ret[aliases[alias]] = value;
-    delete ret[alias];
-  }
-
-  return ret;
-};
-
-/**
- * Get the call's username.
- *
- * @return {String or Undefined}
- */
-
-Track.prototype.username = function () {
-  return this.proxy('traits.username') ||
-         this.proxy('properties.username') ||
-         this.userId() ||
-         this.sessionId();
-};
-
-/**
- * Get the call's email, using an the user ID if it's a valid email.
- *
- * @return {String or Undefined}
- */
-
-Track.prototype.email = function () {
-  var email = this.proxy('traits.email');
-  email = email || this.proxy('properties.email');
-  if (email) return email;
-
-  var userId = this.userId();
-  if (isEmail(userId)) return userId;
-};
-
-/**
- * Get the call's revenue, parsing it from a string with an optional leading
- * dollar sign.
- *
- * For products/services that don't have shipping and are not directly taxed,
- * they only care about tracking `revenue`. These are things like
- * SaaS companies, who sell monthly subscriptions. The subscriptions aren't
- * taxed directly, and since it's a digital product, it has no shipping.
- *
- * The only case where there's a difference between `revenue` and `total`
- * (in the context of analytics) is on ecommerce platforms, where they want
- * the `revenue` function to actually return the `total` (which includes
- * tax and shipping, total = subtotal + tax + shipping). This is probably
- * because on their backend they assume tax and shipping has been applied to
- * the value, and so can get the revenue on their own.
- *
- * @return {Number}
- */
-
-Track.prototype.revenue = function () {
-  var revenue = this.proxy('properties.revenue');
-  var event = this.event();
-
-  // it's always revenue, unless it's called during an order completion.
-  if (!revenue && event && event.match(/completed ?order/i)) {
-    revenue = this.proxy('properties.total');
-  }
-
-  return currency(revenue);
-};
-
-/**
- * Get cents.
- *
- * @return {Number}
- */
-
-Track.prototype.cents = function(){
-  var revenue = this.revenue();
-  return 'number' != typeof revenue
-    ? this.value() || 0
-    : revenue * 100;
-};
-
-/**
- * A utility to turn the pieces of a track call into an identify. Used for
- * integrations with super properties or rate limits.
- *
- * TODO: remove me.
- *
- * @return {Facade}
- */
-
-Track.prototype.identify = function () {
-  var json = this.json();
-  json.traits = this.traits();
-  return new Identify(json);
-};
-
-/**
- * Get float from currency value.
- *
- * @param {Mixed} val
- * @return {Number}
- */
-
-function currency(val) {
-  if (!val) return;
-  if (typeof val === 'number') return val;
-  if (typeof val !== 'string') return;
-
-  val = val.replace(/\$/g, '');
-  val = parseFloat(val);
-
-  if (!isNaN(val)) return val;
-}
-
-}, {"./utils":65,"./facade":57,"./identify":60,"is-email":74,"obj-case":67}],
-62: [function(require, module, exports) {
-
-var inherit = require('./utils').inherit;
-var Facade = require('./facade');
-var Track = require('./track');
-
-/**
- * Expose `Page` facade
- */
-
-module.exports = Page;
-
-/**
- * Initialize new `Page` facade with `dictionary`.
- *
- * @param {Object} dictionary
- *   @param {String} category
- *   @param {String} name
- *   @param {Object} traits
- *   @param {Object} options
- */
-
-function Page(dictionary){
-  Facade.call(this, dictionary);
-}
-
-/**
- * Inherit from `Facade`
- */
-
-inherit(Page, Facade);
-
-/**
- * Get the facade's action.
- *
- * @return {String}
- */
-
-Page.prototype.type =
-Page.prototype.action = function(){
-  return 'page';
-};
-
-/**
- * Fields
- */
-
-Page.prototype.category = Facade.field('category');
-Page.prototype.name = Facade.field('name');
-
-/**
- * Proxies.
- */
-
-Page.prototype.title = Facade.proxy('properties.title');
-Page.prototype.path = Facade.proxy('properties.path');
-Page.prototype.url = Facade.proxy('properties.url');
-
-/**
- * Referrer.
- */
-
-Page.prototype.referrer = function(){
-  return this.proxy('properties.referrer')
-    || this.proxy('context.referrer.url');
-};
-
-/**
- * Get the page properties mixing `category` and `name`.
- *
- * @return {Object}
- */
-
-Page.prototype.properties = function(){
-  var props = this.field('properties') || {};
-  var category = this.category();
-  var name = this.name();
-  if (category) props.category = category;
-  if (name) props.name = name;
-  return props;
-};
-
-/**
- * Get the page fullName.
- *
- * @return {String}
- */
-
-Page.prototype.fullName = function(){
-  var category = this.category();
-  var name = this.name();
-  return name && category
-    ? category + ' ' + name
-    : name;
-};
-
-/**
- * Get event with `name`.
- *
- * @return {String}
- */
-
-Page.prototype.event = function(name){
-  return name
-    ? 'Viewed ' + name + ' Page'
-    : 'Loaded a Page';
-};
-
-/**
- * Convert this Page to a Track facade with `name`.
- *
- * @param {String} name
- * @return {Track}
- */
-
-Page.prototype.track = function(name){
-  var props = this.properties();
-  return new Track({
-    event: this.event(name),
-    timestamp: this.timestamp(),
-    context: this.context(),
-    properties: props
-  });
-};
-
-}, {"./utils":65,"./facade":57,"./track":61}],
-63: [function(require, module, exports) {
-
-var inherit = require('./utils').inherit;
-var Page = require('./page');
-var Track = require('./track');
-
-/**
- * Expose `Screen` facade
- */
-
-module.exports = Screen;
-
-/**
- * Initialize new `Screen` facade with `dictionary`.
- *
- * @param {Object} dictionary
- *   @param {String} category
- *   @param {String} name
- *   @param {Object} traits
- *   @param {Object} options
- */
-
-function Screen(dictionary){
-  Page.call(this, dictionary);
-}
-
-/**
- * Inherit from `Page`
- */
-
-inherit(Screen, Page);
-
-/**
- * Get the facade's action.
- *
- * @return {String}
- * @api public
- */
-
-Screen.prototype.type =
-Screen.prototype.action = function(){
-  return 'screen';
-};
-
-/**
- * Get event with `name`.
- *
- * @param {String} name
- * @return {String}
- * @api public
- */
-
-Screen.prototype.event = function(name){
-  return name
-    ? 'Viewed ' + name + ' Screen'
-    : 'Loaded a Screen';
-};
-
-/**
- * Convert this Screen.
- *
- * @param {String} name
- * @return {Track}
- * @api public
- */
-
-Screen.prototype.track = function(name){
-  var props = this.properties();
-  return new Track({
-    event: this.event(name),
-    timestamp: this.timestamp(),
-    context: this.context(),
-    properties: props
-  });
-};
-
-}, {"./utils":65,"./page":62,"./track":61}],
-15: [function(require, module, exports) {
-
-module.exports = function after (times, func) {
-  // After 0, really?
-  if (times <= 0) return func();
-
-  // That's more like it.
-  return function() {
-    if (--times < 1) {
-      return func.apply(this, arguments);
-    }
-  };
-};
-}, {}],
-17: [function(require, module, exports) {
-var next = require('next-tick');
-
-
-/**
- * Expose `callback`.
- */
-
-module.exports = callback;
-
-
-/**
- * Call an `fn` back synchronously if it exists.
- *
- * @param {Function} fn
- */
-
-function callback (fn) {
-  if ('function' === typeof fn) fn();
-}
-
-
-/**
- * Call an `fn` back asynchronously if it exists. If `wait` is ommitted, the
- * `fn` will be called on next tick.
- *
- * @param {Function} fn
- * @param {Number} wait (optional)
- */
-
-callback.async = function (fn, wait) {
-  if ('function' !== typeof fn) return;
-  if (!wait) return next(fn);
-  setTimeout(fn, wait);
-};
-
-
-/**
- * Symmetry.
- */
-
-callback.sync = callback;
-
-}, {"next-tick":76}],
-76: [function(require, module, exports) {
-"use strict"
-
-if (typeof setImmediate == 'function') {
-  module.exports = function(f){ setImmediate(f) }
-}
-// legacy node.js
-else if (typeof process != 'undefined' && typeof process.nextTick == 'function') {
-  module.exports = process.nextTick
-}
-// fallback for other environments / postMessage behaves badly on IE8
-else if (typeof window == 'undefined' || window.ActiveXObject || !window.postMessage) {
-  module.exports = function(f){ setTimeout(f) };
-} else {
-  var q = [];
-
-  window.addEventListener('message', function(){
-    var i = 0;
-    while (i < q.length) {
-      try { q[i++](); }
-      catch (e) {
-        q = q.slice(i);
-        window.postMessage('tic!', '*');
-        throw e;
-      }
-    }
-    q.length = 0;
-  }, true);
-
-  module.exports = function(fn){
-    if (!q.length) window.postMessage('tic!', '*');
-    q.push(fn);
-  }
-}
-
-}, {}],
-22: [function(require, module, exports) {
-module.exports = function isMeta (e) {
-    if (e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return true;
-
-    // Logic that handles checks for the middle mouse button, based
-    // on [jQuery](https://github.com/jquery/jquery/blob/master/src/event.js#L466).
-    var which = e.which, button = e.button;
-    if (!which && button !== undefined) {
-      return (!button & 1) && (!button & 2) && (button & 4);
-    } else if (which === 2) {
-      return true;
-    }
-
-    return false;
-};
-}, {}],
-23: [function(require, module, exports) {
-
-/**
- * HOP ref.
- */
-
-var has = Object.prototype.hasOwnProperty;
-
-/**
- * Return own keys in `obj`.
- *
- * @param {Object} obj
- * @return {Array}
- * @api public
- */
-
-exports.keys = Object.keys || function(obj){
-  var keys = [];
-  for (var key in obj) {
-    if (has.call(obj, key)) {
-      keys.push(key);
-    }
-  }
-  return keys;
-};
-
-/**
- * Return own values in `obj`.
- *
- * @param {Object} obj
- * @return {Array}
- * @api public
- */
-
-exports.values = function(obj){
-  var vals = [];
-  for (var key in obj) {
-    if (has.call(obj, key)) {
-      vals.push(obj[key]);
-    }
-  }
-  return vals;
-};
-
-/**
- * Merge `b` into `a`.
- *
- * @param {Object} a
- * @param {Object} b
- * @return {Object} a
- * @api public
- */
-
-exports.merge = function(a, b){
-  for (var key in b) {
-    if (has.call(b, key)) {
-      a[key] = b[key];
-    }
-  }
-  return a;
-};
-
-/**
- * Return length of `obj`.
- *
- * @param {Object} obj
- * @return {Number}
- * @api public
- */
-
-exports.length = function(obj){
-  return exports.keys(obj).length;
-};
-
-/**
- * Check if `obj` is empty.
- *
- * @param {Object} obj
- * @return {Boolean}
- * @api public
- */
-
-exports.isEmpty = function(obj){
-  return 0 == exports.length(obj);
-};
-}, {}],
-24: [function(require, module, exports) {
-
-/**
- * Bind `el` event `type` to `fn`.
- *
- * @param {Element} el
- * @param {String} type
- * @param {Function} fn
- * @param {Boolean} capture
- * @return {Function}
- * @api public
- */
-
-exports.bind = function(el, type, fn, capture){
-  if (el.addEventListener) {
-    el.addEventListener(type, fn, capture || false);
-  } else {
-    el.attachEvent('on' + type, fn);
-  }
-  return fn;
-};
-
-/**
- * Unbind `el` event `type`'s callback `fn`.
- *
- * @param {Element} el
- * @param {String} type
- * @param {Function} fn
- * @param {Boolean} capture
- * @return {Function}
- * @api public
- */
-
-exports.unbind = function(el, type, fn, capture){
-  if (el.removeEventListener) {
-    el.removeEventListener(type, fn, capture || false);
-  } else {
-    el.detachEvent('on' + type, fn);
-  }
-  return fn;
-};
-
-}, {}],
-25: [function(require, module, exports) {
-'use strict';
-
-var objToString = Object.prototype.toString;
-
-// TODO: Move to lib
-var existy = function(val) {
-  return val != null;
-};
-
-// TODO: Move to lib
-var isArray = function(val) {
-  return objToString.call(val) === '[object Array]';
-};
-
-// TODO: Move to lib
-var isString = function(val) {
-   return typeof val === 'string' || objToString.call(val) === '[object String]';
-};
-
-// TODO: Move to lib
-var isObject = function(val) {
-  return val != null && typeof val === 'object';
-};
-
-/**
- * Returns a copy of the new `object` containing only the specified properties.
- *
- * @name pick
- * @api public
- * @category Object
- * @see {@link omit}
- * @param {Array.<string>|string} props The property or properties to keep.
- * @param {Object} object The object to iterate over.
- * @return {Object} A new object containing only the specified properties from `object`.
- * @example
- * var person = { name: 'Tim', occupation: 'enchanter', fears: 'rabbits' };
- *
- * pick('name', person);
- * //=> { name: 'Tim' }
- *
- * pick(['name', 'fears'], person);
- * //=> { name: 'Tim', fears: 'rabbits' }
- */
-
-var pick = function pick(props, object) {
-  if (!existy(object) || !isObject(object)) {
-    return {};
-  }
-
-  if (isString(props)) {
-    props = [props];
-  }
-
-  if (!isArray(props)) {
-    props = [];
-  }
-
-  var result = {};
-
-  for (var i = 0; i < props.length; i += 1) {
-    if (isString(props[i]) && props[i] in object) {
-      result[props[i]] = object[props[i]];
-    }
-  }
-
-  return result;
-};
-
-/**
- * Exports.
- */
-
-module.exports = pick;
-
-}, {}],
-26: [function(require, module, exports) {
-
-/**
- * prevent default on the given `e`.
- * 
- * examples:
- * 
- *      anchor.onclick = prevent;
- *      anchor.onclick = function(e){
- *        if (something) return prevent(e);
- *      };
- * 
- * @param {Event} e
- */
-
-module.exports = function(e){
-  e = e || window.event
-  return e.preventDefault
-    ? e.preventDefault()
-    : e.returnValue = false;
-};
-
-}, {}],
-27: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var encode = encodeURIComponent;
-var decode = decodeURIComponent;
-var trim = require('trim');
-var type = require('type');
-
-/**
- * Parse the given query `str`.
- *
- * @param {String} str
- * @return {Object}
- * @api public
- */
-
-exports.parse = function(str){
-  if ('string' != typeof str) return {};
-
-  str = trim(str);
-  if ('' == str) return {};
-  if ('?' == str.charAt(0)) str = str.slice(1);
-
-  var obj = {};
-  var pairs = str.split('&');
-  for (var i = 0; i < pairs.length; i++) {
-    var parts = pairs[i].split('=');
-    var key = decode(parts[0]);
-    var m;
-
-    if (m = /(\w+)\[(\d+)\]/.exec(key)) {
-      obj[m[1]] = obj[m[1]] || [];
-      obj[m[1]][m[2]] = decode(parts[1]);
-      continue;
-    }
-
-    obj[parts[0]] = null == parts[1]
-      ? ''
-      : decode(parts[1]);
-  }
-
-  return obj;
-};
-
-/**
- * Stringify the given `obj`.
- *
- * @param {Object} obj
- * @return {String}
- * @api public
- */
-
-exports.stringify = function(obj){
-  if (!obj) return '';
-  var pairs = [];
-
-  for (var key in obj) {
-    var value = obj[key];
-
-    if ('array' == type(value)) {
-      for (var i = 0; i < value.length; ++i) {
-        pairs.push(encode(key + '[' + i + ']') + '=' + encode(value[i]));
-      }
-      continue;
-    }
-
-    pairs.push(encode(key) + '=' + encode(obj[key]));
-  }
-
-  return pairs.join('&');
-};
-
-}, {"trim":75,"type":33}],
 3: [function(require, module, exports) {
 /* eslint quote-props: 0 */
 'use strict';
 
 module.exports = {
-  'attribution': require('attribution/analytics.js-integration-attribution@0.0.3')
+  'attribution': require('attribution/analytics.js-integration-attribution@0.0.4')
 };
 
-}, {"attribution/analytics.js-integration-attribution@0.0.3":77}],
-77: [function(require, module, exports) {
+}, {"attribution/analytics.js-integration-attribution@0.0.4":80}],
+80: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7010,6 +7537,7 @@ var protocol = require('segmentio/protocol');
 var send = require('yields/send-json');
 var topDomain = require('top-domain');
 var uuid = require('uuid');
+var encode = require('ForbesLindesay/base64-encode');
 
 /**
  * Cookie options
@@ -7163,9 +7691,20 @@ Attribution.prototype.normalize = function(msg) {
  */
 
 Attribution.prototype.send = function(path, msg, fn) {
-  var projectId = this.options.project || window.Attribution.projectId;
-  var url = scheme() + '//track.attributionapp.com' + path + "?project_id=" + projectId;
-  var headers = { 'Content-Type': 'text/plain' };
+  var url = scheme() + '//track.attributionapp.com' + path;
+
+  var username = this.options.project || window.Attribution.projectId;
+  var password = "";
+  var basicAuth = 'Basic ' + encode(username + ":" + password);
+
+  var headers = {
+    'Content-Type': 'text/plain',
+    'Authorization': basicAuth
+  };
+
+  // No headers on JSONP so put the project_id in the msg
+  msg.project_id = username;
+
   fn = fn || noop;
   var self = this;
 
@@ -7228,8 +7767,8 @@ function scheme() {
 
 function noop() {}
 
-}, {"clone":18,"cookie":28,"extend":41,"segmentio/analytics.js-integration@1.0.1":78,"segmentio/json@1.0.0":29,"store":79,"segmentio/protocol":80,"yields/send-json":81,"top-domain":82,"uuid":55}],
-78: [function(require, module, exports) {
+}, {"clone":11,"cookie":56,"extend":69,"segmentio/analytics.js-integration@1.0.1":81,"segmentio/json@1.0.0":57,"store":82,"segmentio/protocol":83,"yields/send-json":84,"top-domain":85,"uuid":79,"ForbesLindesay/base64-encode":86}],
+81: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7293,8 +7832,391 @@ function createIntegration(name){
 
 module.exports = createIntegration;
 
-}, {"./protos":83,"./statics":84,"bind":85,"clone":18,"debug":86,"defaults":20,"extend":87,"slug":88}],
-83: [function(require, module, exports) {
+}, {"bind":87,"clone":11,"debug":88,"defaults":14,"extend":89,"slug":90,"./protos":91,"./statics":92}],
+87: [function(require, module, exports) {
+
+var bind = require('bind')
+  , bindAll = require('bind-all');
+
+
+/**
+ * Expose `bind`.
+ */
+
+module.exports = exports = bind;
+
+
+/**
+ * Expose `bindAll`.
+ */
+
+exports.all = bindAll;
+
+
+/**
+ * Expose `bindMethods`.
+ */
+
+exports.methods = bindMethods;
+
+
+/**
+ * Bind `methods` on `obj` to always be called with the `obj` as context.
+ *
+ * @param {Object} obj
+ * @param {String} methods...
+ */
+
+function bindMethods (obj, methods) {
+  methods = [].slice.call(arguments, 1);
+  for (var i = 0, method; method = methods[i]; i++) {
+    obj[method] = bind(obj, obj[method]);
+  }
+  return obj;
+}
+}, {"bind":53,"bind-all":54}],
+88: [function(require, module, exports) {
+if ('undefined' == typeof window) {
+  module.exports = require('./lib/debug');
+} else {
+  module.exports = require('./debug');
+}
+
+}, {"./lib/debug":93,"./debug":94}],
+93: [function(require, module, exports) {
+/**
+ * Module dependencies.
+ */
+
+var tty = require('tty');
+
+/**
+ * Expose `debug()` as the module.
+ */
+
+module.exports = debug;
+
+/**
+ * Enabled debuggers.
+ */
+
+var names = []
+  , skips = [];
+
+(process.env.DEBUG || '')
+  .split(/[\s,]+/)
+  .forEach(function(name){
+    name = name.replace('*', '.*?');
+    if (name[0] === '-') {
+      skips.push(new RegExp('^' + name.substr(1) + '$'));
+    } else {
+      names.push(new RegExp('^' + name + '$'));
+    }
+  });
+
+/**
+ * Colors.
+ */
+
+var colors = [6, 2, 3, 4, 5, 1];
+
+/**
+ * Previous debug() call.
+ */
+
+var prev = {};
+
+/**
+ * Previously assigned color.
+ */
+
+var prevColor = 0;
+
+/**
+ * Is stdout a TTY? Colored output is disabled when `true`.
+ */
+
+var isatty = tty.isatty(2);
+
+/**
+ * Select a color.
+ *
+ * @return {Number}
+ * @api private
+ */
+
+function color() {
+  return colors[prevColor++ % colors.length];
+}
+
+/**
+ * Humanize the given `ms`.
+ *
+ * @param {Number} m
+ * @return {String}
+ * @api private
+ */
+
+function humanize(ms) {
+  var sec = 1000
+    , min = 60 * 1000
+    , hour = 60 * min;
+
+  if (ms >= hour) return (ms / hour).toFixed(1) + 'h';
+  if (ms >= min) return (ms / min).toFixed(1) + 'm';
+  if (ms >= sec) return (ms / sec | 0) + 's';
+  return ms + 'ms';
+}
+
+/**
+ * Create a debugger with the given `name`.
+ *
+ * @param {String} name
+ * @return {Type}
+ * @api public
+ */
+
+function debug(name) {
+  function disabled(){}
+  disabled.enabled = false;
+
+  var match = skips.some(function(re){
+    return re.test(name);
+  });
+
+  if (match) return disabled;
+
+  match = names.some(function(re){
+    return re.test(name);
+  });
+
+  if (!match) return disabled;
+  var c = color();
+
+  function colored(fmt) {
+    fmt = coerce(fmt);
+
+    var curr = new Date;
+    var ms = curr - (prev[name] || curr);
+    prev[name] = curr;
+
+    fmt = '  \u001b[9' + c + 'm' + name + ' '
+      + '\u001b[3' + c + 'm\u001b[90m'
+      + fmt + '\u001b[3' + c + 'm'
+      + ' +' + humanize(ms) + '\u001b[0m';
+
+    console.error.apply(this, arguments);
+  }
+
+  function plain(fmt) {
+    fmt = coerce(fmt);
+
+    fmt = new Date().toUTCString()
+      + ' ' + name + ' ' + fmt;
+    console.error.apply(this, arguments);
+  }
+
+  colored.enabled = plain.enabled = true;
+
+  return isatty || process.env.DEBUG_COLORS
+    ? colored
+    : plain;
+}
+
+/**
+ * Coerce `val`.
+ */
+
+function coerce(val) {
+  if (val instanceof Error) return val.stack || val.message;
+  return val;
+}
+
+}, {}],
+94: [function(require, module, exports) {
+
+/**
+ * Expose `debug()` as the module.
+ */
+
+module.exports = debug;
+
+/**
+ * Create a debugger with the given `name`.
+ *
+ * @param {String} name
+ * @return {Type}
+ * @api public
+ */
+
+function debug(name) {
+  if (!debug.enabled(name)) return function(){};
+
+  return function(fmt){
+    fmt = coerce(fmt);
+
+    var curr = new Date;
+    var ms = curr - (debug[name] || curr);
+    debug[name] = curr;
+
+    fmt = name
+      + ' '
+      + fmt
+      + ' +' + debug.humanize(ms);
+
+    // This hackery is required for IE8
+    // where `console.log` doesn't have 'apply'
+    window.console
+      && console.log
+      && Function.prototype.apply.call(console.log, console, arguments);
+  }
+}
+
+/**
+ * The currently active debug mode names.
+ */
+
+debug.names = [];
+debug.skips = [];
+
+/**
+ * Enables a debug mode by name. This can include modes
+ * separated by a colon and wildcards.
+ *
+ * @param {String} name
+ * @api public
+ */
+
+debug.enable = function(name) {
+  try {
+    localStorage.debug = name;
+  } catch(e){}
+
+  var split = (name || '').split(/[\s,]+/)
+    , len = split.length;
+
+  for (var i = 0; i < len; i++) {
+    name = split[i].replace('*', '.*?');
+    if (name[0] === '-') {
+      debug.skips.push(new RegExp('^' + name.substr(1) + '$'));
+    }
+    else {
+      debug.names.push(new RegExp('^' + name + '$'));
+    }
+  }
+};
+
+/**
+ * Disable debug output.
+ *
+ * @api public
+ */
+
+debug.disable = function(){
+  debug.enable('');
+};
+
+/**
+ * Humanize the given `ms`.
+ *
+ * @param {Number} m
+ * @return {String}
+ * @api private
+ */
+
+debug.humanize = function(ms) {
+  var sec = 1000
+    , min = 60 * 1000
+    , hour = 60 * min;
+
+  if (ms >= hour) return (ms / hour).toFixed(1) + 'h';
+  if (ms >= min) return (ms / min).toFixed(1) + 'm';
+  if (ms >= sec) return (ms / sec | 0) + 's';
+  return ms + 'ms';
+};
+
+/**
+ * Returns true if the given mode name is enabled, false otherwise.
+ *
+ * @param {String} name
+ * @return {Boolean}
+ * @api public
+ */
+
+debug.enabled = function(name) {
+  for (var i = 0, len = debug.skips.length; i < len; i++) {
+    if (debug.skips[i].test(name)) {
+      return false;
+    }
+  }
+  for (var i = 0, len = debug.names.length; i < len; i++) {
+    if (debug.names[i].test(name)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Coerce `val`.
+ */
+
+function coerce(val) {
+  if (val instanceof Error) return val.stack || val.message;
+  return val;
+}
+
+// persist
+
+try {
+  if (window.localStorage) debug.enable(localStorage.debug);
+} catch(e){}
+
+}, {}],
+89: [function(require, module, exports) {
+
+module.exports = function extend (object) {
+    // Takes an unlimited number of extenders.
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    // For each extender, copy their properties on our object.
+    for (var i = 0, source; source = args[i]; i++) {
+        if (!source) continue;
+        for (var property in source) {
+            object[property] = source[property];
+        }
+    }
+
+    return object;
+};
+}, {}],
+90: [function(require, module, exports) {
+
+/**
+ * Generate a slug from the given `str`.
+ *
+ * example:
+ *
+ *        generate('foo bar');
+ *        // > foo-bar
+ *
+ * @param {String} str
+ * @param {Object} options
+ * @config {String|RegExp} [replace] characters to replace, defaulted to `/[^a-z0-9]/g`
+ * @config {String} [separator] separator to insert, defaulted to `-`
+ * @return {String}
+ */
+
+module.exports = function (str, options) {
+  options || (options = {});
+  return str.toLowerCase()
+    .replace(options.replace || /[^a-z0-9]/g, ' ')
+    .replace(/^ +| +$/g, '')
+    .replace(/ +/g, options.separator || '-')
+};
+
+}, {}],
+91: [function(require, module, exports) {
 /* global setInterval:true setTimeout:true */
 
 /**
@@ -7781,8 +8703,8 @@ function render(template, locals){
   }, {}, template.attrs);
 }
 
-}, {"emitter":13,"after":15,"each":89,"analytics-events":90,"fmt":91,"foldl":92,"load-iframe":93,"load-script":94,"to-no-case":95,"next-tick":76,"every":96,"is":97}],
-89: [function(require, module, exports) {
+}, {"emitter":6,"after":8,"each":95,"analytics-events":96,"fmt":97,"foldl":98,"load-iframe":99,"load-script":100,"to-no-case":101,"next-tick":55,"every":102,"is":103}],
+95: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7873,8 +8795,8 @@ function array(obj, fn, ctx) {
   }
 }
 
-}, {"type":98,"component-type":98,"to-function":51}],
-98: [function(require, module, exports) {
+}, {"type":104,"component-type":104,"to-function":75}],
+104: [function(require, module, exports) {
 
 /**
  * toString ref.
@@ -7909,7 +8831,7 @@ module.exports = function(val){
 };
 
 }, {}],
-90: [function(require, module, exports) {
+96: [function(require, module, exports) {
 
 module.exports = {
   removedProduct: /^[ _]?removed[ _]?product[ _]?$/i,
@@ -7929,7 +8851,7 @@ module.exports = {
 };
 
 }, {}],
-91: [function(require, module, exports) {
+97: [function(require, module, exports) {
 
 /**
  * toString.
@@ -7974,7 +8896,7 @@ function fmt(str){
 }
 
 }, {}],
-92: [function(require, module, exports) {
+98: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -8032,8 +8954,8 @@ var foldl = function foldl(iterator, accumulator, collection) {
 
 module.exports = foldl;
 
-}, {"each":49}],
-93: [function(require, module, exports) {
+}, {"each":73}],
+99: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8095,8 +9017,8 @@ module.exports = function loadIframe(options, fn){
   // give it an ID or attributes.
   return iframe;
 };
-}, {"script-onload":99,"next-tick":76,"type":33}],
-99: [function(require, module, exports) {
+}, {"script-onload":105,"next-tick":55,"type":45}],
+105: [function(require, module, exports) {
 
 // https://github.com/thirdpartyjs/thirdpartyjs-code/blob/master/examples/templates/02/loading-files/index.html
 
@@ -8152,7 +9074,7 @@ function attach(el, fn){
 }
 
 }, {}],
-94: [function(require, module, exports) {
+100: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8213,8 +9135,8 @@ module.exports = function loadScript(options, fn){
   // give it an ID or attributes.
   return script;
 };
-}, {"script-onload":99,"next-tick":76,"type":33}],
-95: [function(require, module, exports) {
+}, {"script-onload":105,"next-tick":55,"type":45}],
+101: [function(require, module, exports) {
 
 /**
  * Expose `toNoCase`.
@@ -8287,7 +9209,7 @@ function uncamelize (string) {
   });
 }
 }, {}],
-96: [function(require, module, exports) {
+102: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -8339,8 +9261,8 @@ var every = function every(predicate, collection) {
 
 module.exports = every;
 
-}, {"each":49}],
-97: [function(require, module, exports) {
+}, {"each":73}],
+103: [function(require, module, exports) {
 
 var isEmpty = require('is-empty');
 
@@ -8416,8 +9338,8 @@ function generate (type) {
     return type === typeOf(value);
   };
 }
-}, {"is-empty":46,"type":33,"component-type":33}],
-84: [function(require, module, exports) {
+}, {"is-empty":44,"type":45,"component-type":45}],
+92: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8581,8 +9503,8 @@ function objectify(str) {
   };
 }
 
-}, {"emitter":13,"domify":100,"each":89,"includes":47}],
-100: [function(require, module, exports) {
+}, {"emitter":6,"domify":106,"each":95,"includes":71}],
+106: [function(require, module, exports) {
 
 /**
  * Expose `parse`.
@@ -8693,232 +9615,7 @@ function parse(html, doc) {
 }
 
 }, {}],
-85: [function(require, module, exports) {
-
-var bind = require('bind')
-  , bindAll = require('bind-all');
-
-
-/**
- * Expose `bind`.
- */
-
-module.exports = exports = bind;
-
-
-/**
- * Expose `bindAll`.
- */
-
-exports.all = bindAll;
-
-
-/**
- * Expose `bindMethods`.
- */
-
-exports.methods = bindMethods;
-
-
-/**
- * Bind `methods` on `obj` to always be called with the `obj` as context.
- *
- * @param {Object} obj
- * @param {String} methods...
- */
-
-function bindMethods (obj, methods) {
-  methods = [].slice.call(arguments, 1);
-  for (var i = 0, method; method = methods[i]; i++) {
-    obj[method] = bind(obj, obj[method]);
-  }
-  return obj;
-}
-}, {"bind":31,"bind-all":32}],
-86: [function(require, module, exports) {
-
-/**
- * Expose `debug()` as the module.
- */
-
-module.exports = debug;
-
-/**
- * Create a debugger with the given `name`.
- *
- * @param {String} name
- * @return {Type}
- * @api public
- */
-
-function debug(name) {
-  if (!debug.enabled(name)) return function(){};
-
-  return function(fmt){
-    fmt = coerce(fmt);
-
-    var curr = new Date;
-    var ms = curr - (debug[name] || curr);
-    debug[name] = curr;
-
-    fmt = name
-      + ' '
-      + fmt
-      + ' +' + debug.humanize(ms);
-
-    // This hackery is required for IE8
-    // where `console.log` doesn't have 'apply'
-    window.console
-      && console.log
-      && Function.prototype.apply.call(console.log, console, arguments);
-  }
-}
-
-/**
- * The currently active debug mode names.
- */
-
-debug.names = [];
-debug.skips = [];
-
-/**
- * Enables a debug mode by name. This can include modes
- * separated by a colon and wildcards.
- *
- * @param {String} name
- * @api public
- */
-
-debug.enable = function(name) {
-  try {
-    localStorage.debug = name;
-  } catch(e){}
-
-  var split = (name || '').split(/[\s,]+/)
-    , len = split.length;
-
-  for (var i = 0; i < len; i++) {
-    name = split[i].replace('*', '.*?');
-    if (name[0] === '-') {
-      debug.skips.push(new RegExp('^' + name.substr(1) + '$'));
-    }
-    else {
-      debug.names.push(new RegExp('^' + name + '$'));
-    }
-  }
-};
-
-/**
- * Disable debug output.
- *
- * @api public
- */
-
-debug.disable = function(){
-  debug.enable('');
-};
-
-/**
- * Humanize the given `ms`.
- *
- * @param {Number} m
- * @return {String}
- * @api private
- */
-
-debug.humanize = function(ms) {
-  var sec = 1000
-    , min = 60 * 1000
-    , hour = 60 * min;
-
-  if (ms >= hour) return (ms / hour).toFixed(1) + 'h';
-  if (ms >= min) return (ms / min).toFixed(1) + 'm';
-  if (ms >= sec) return (ms / sec | 0) + 's';
-  return ms + 'ms';
-};
-
-/**
- * Returns true if the given mode name is enabled, false otherwise.
- *
- * @param {String} name
- * @return {Boolean}
- * @api public
- */
-
-debug.enabled = function(name) {
-  for (var i = 0, len = debug.skips.length; i < len; i++) {
-    if (debug.skips[i].test(name)) {
-      return false;
-    }
-  }
-  for (var i = 0, len = debug.names.length; i < len; i++) {
-    if (debug.names[i].test(name)) {
-      return true;
-    }
-  }
-  return false;
-};
-
-/**
- * Coerce `val`.
- */
-
-function coerce(val) {
-  if (val instanceof Error) return val.stack || val.message;
-  return val;
-}
-
-// persist
-
-try {
-  if (window.localStorage) debug.enable(localStorage.debug);
-} catch(e){}
-
-}, {}],
-87: [function(require, module, exports) {
-
-module.exports = function extend (object) {
-    // Takes an unlimited number of extenders.
-    var args = Array.prototype.slice.call(arguments, 1);
-
-    // For each extender, copy their properties on our object.
-    for (var i = 0, source; source = args[i]; i++) {
-        if (!source) continue;
-        for (var property in source) {
-            object[property] = source[property];
-        }
-    }
-
-    return object;
-};
-}, {}],
-88: [function(require, module, exports) {
-
-/**
- * Generate a slug from the given `str`.
- *
- * example:
- *
- *        generate('foo bar');
- *        // > foo-bar
- *
- * @param {String} str
- * @param {Object} options
- * @config {String|RegExp} [replace] characters to replace, defaulted to `/[^a-z0-9]/g`
- * @config {String} [separator] separator to insert, defaulted to `-`
- * @return {String}
- */
-
-module.exports = function (str, options) {
-  options || (options = {});
-  return str.toLowerCase()
-    .replace(options.replace || /[^a-z0-9]/g, ' ')
-    .replace(/^ +| +$/g, '')
-    .replace(/ +/g, options.separator || '-')
-};
-
-}, {}],
-79: [function(require, module, exports) {
+82: [function(require, module, exports) {
 
 /**
  * dependencies.
@@ -9013,8 +9710,8 @@ function all(){
   return ret;
 }
 
-}, {"unserialize":101,"each":89}],
-101: [function(require, module, exports) {
+}, {"unserialize":107,"each":95}],
+107: [function(require, module, exports) {
 
 /**
  * Unserialize the given "stringified" javascript.
@@ -9032,7 +9729,7 @@ module.exports = function(val){
 };
 
 }, {}],
-80: [function(require, module, exports) {
+83: [function(require, module, exports) {
 
 /**
  * Convenience alias
@@ -9115,7 +9812,7 @@ function set (protocol) {
 }
 
 }, {}],
-81: [function(require, module, exports) {
+84: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -9214,8 +9911,8 @@ function base64(url, obj, _, fn){
   });
 }
 
-}, {"base64-encode":102,"has-cors":103,"jsonp":104,"json":29}],
-102: [function(require, module, exports) {
+}, {"base64-encode":108,"has-cors":109,"jsonp":110,"json":57}],
+108: [function(require, module, exports) {
 var utf8Encode = require('utf8-encode');
 var keyStr = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
@@ -9252,8 +9949,8 @@ function encode(input) {
 
     return output;
 }
-}, {"utf8-encode":105}],
-105: [function(require, module, exports) {
+}, {"utf8-encode":111}],
+111: [function(require, module, exports) {
 module.exports = encode;
 
 function encode(string) {
@@ -9282,13 +9979,7 @@ function encode(string) {
     return utftext;
 }
 }, {}],
-103: [function(require, module, exports) {
-
-/**
- * Module dependencies.
- */
-
-var global = require('global');
+109: [function(require, module, exports) {
 
 /**
  * Module exports.
@@ -9299,27 +9990,16 @@ var global = require('global');
  */
 
 try {
-  module.exports = 'XMLHttpRequest' in global &&
-    'withCredentials' in new global.XMLHttpRequest();
+  module.exports = typeof XMLHttpRequest !== 'undefined' &&
+    'withCredentials' in new XMLHttpRequest();
 } catch (err) {
   // if XMLHttp support is disabled in IE then it will throw
   // when trying to create
   module.exports = false;
 }
 
-}, {"global":106}],
-106: [function(require, module, exports) {
-
-/**
- * Returns `this`. Execute this without a "context" (i.e. without it being
- * attached to an object of the left-hand side), and `this` points to the
- * "global" scope of the current JS execution.
- */
-
-module.exports = (function () { return this; })();
-
 }, {}],
-104: [function(require, module, exports) {
+110: [function(require, module, exports) {
 /**
  * Module dependencies
  */
@@ -9405,8 +10085,8 @@ function jsonp(url, opts, fn){
   target.parentNode.insertBefore(script, target);
 }
 
-}, {"debug":19}],
-82: [function(require, module, exports) {
+}, {"debug":13}],
+85: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9454,7 +10134,52 @@ function domain(url){
   return match ? match[0] : '';
 };
 
-}, {"url":37}],
-4: [function(require, module, exports) {
-module.exports = '{\n  "name": "analytics",\n  "version": "2.9.1",\n  "main": "analytics.js",\n  "dependencies": {},\n  "devDependencies": {}\n}\n';
-}, {}]}, {}, {"1":""})
+}, {"url":65}],
+86: [function(require, module, exports) {
+var utf8Encode = require('utf8-encode');
+var keyStr = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+
+module.exports = encode;
+function encode(input) {
+    var output = "";
+    var chr1, chr2, chr3, enc1, enc2, enc3, enc4;
+    var i = 0;
+
+    input = utf8Encode(input);
+
+    while (i < input.length) {
+
+        chr1 = input.charCodeAt(i++);
+        chr2 = input.charCodeAt(i++);
+        chr3 = input.charCodeAt(i++);
+
+        enc1 = chr1 >> 2;
+        enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
+        enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
+        enc4 = chr3 & 63;
+
+        if (isNaN(chr2)) {
+            enc3 = enc4 = 64;
+        } else if (isNaN(chr3)) {
+            enc4 = 64;
+        }
+
+        output = output +
+            keyStr.charAt(enc1) + keyStr.charAt(enc2) +
+            keyStr.charAt(enc3) + keyStr.charAt(enc4);
+
+    }
+
+    return output;
+}
+}, {"utf8-encode":111}],
+5: [function(require, module, exports) {
+module.exports = {
+  "name": "analytics",
+  "version": "2.9.1",
+  "main": "analytics.js",
+  "dependencies": {},
+  "devDependencies": {}
+}
+;
+}, {}]}, {}, {"1":""}));
