@@ -1534,12 +1534,24 @@ module.exports = function(val){
   if (val !== val) return 'nan';
   if (val && val.nodeType === 1) return 'element';
 
+  if (isBuffer(val)) return 'buffer';
+
   val = val.valueOf
     ? val.valueOf()
-    : Object.prototype.valueOf.apply(val)
+    : Object.prototype.valueOf.apply(val);
 
   return typeof val;
 };
+
+// code borrowed from https://github.com/feross/is-buffer/blob/master/index.js
+function isBuffer(obj) {
+  return !!(obj != null &&
+    (obj._isBuffer || // For Safari 5-7 (missing Object.prototype.constructor)
+      (obj.constructor &&
+      typeof obj.constructor.isBuffer === 'function' &&
+      obj.constructor.isBuffer(obj))
+    ))
+}
 
 }, {}],
 43: [function(require, module, exports) {
@@ -3686,506 +3698,7 @@ function decode(value) {
   }
 }
 
-}, {"debug":59}],
-59: [function(require, module, exports) {
-
-/**
- * This is the web browser implementation of `debug()`.
- *
- * Expose `debug()` as the module.
- */
-
-exports = module.exports = require('./debug');
-exports.log = log;
-exports.formatArgs = formatArgs;
-exports.save = save;
-exports.load = load;
-exports.useColors = useColors;
-exports.storage = 'undefined' != typeof chrome
-               && 'undefined' != typeof chrome.storage
-                  ? chrome.storage.local
-                  : localstorage();
-
-/**
- * Colors.
- */
-
-exports.colors = [
-  'lightseagreen',
-  'forestgreen',
-  'goldenrod',
-  'dodgerblue',
-  'darkorchid',
-  'crimson'
-];
-
-/**
- * Currently only WebKit-based Web Inspectors, Firefox >= v31,
- * and the Firebug extension (any Firefox version) are known
- * to support "%c" CSS customizations.
- *
- * TODO: add a `localStorage` variable to explicitly enable/disable colors
- */
-
-function useColors() {
-  // is webkit? http://stackoverflow.com/a/16459606/376773
-  return ('WebkitAppearance' in document.documentElement.style) ||
-    // is firebug? http://stackoverflow.com/a/398120/376773
-    (window.console && (console.firebug || (console.exception && console.table))) ||
-    // is firefox >= v31?
-    // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-    (navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31);
-}
-
-/**
- * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
- */
-
-exports.formatters.j = function(v) {
-  return JSON.stringify(v);
-};
-
-
-/**
- * Colorize log arguments if enabled.
- *
- * @api public
- */
-
-function formatArgs() {
-  var args = arguments;
-  var useColors = this.useColors;
-
-  args[0] = (useColors ? '%c' : '')
-    + this.namespace
-    + (useColors ? ' %c' : ' ')
-    + args[0]
-    + (useColors ? '%c ' : ' ')
-    + '+' + exports.humanize(this.diff);
-
-  if (!useColors) return args;
-
-  var c = 'color: ' + this.color;
-  args = [args[0], c, 'color: inherit'].concat(Array.prototype.slice.call(args, 1));
-
-  // the final "%c" is somewhat tricky, because there could be other
-  // arguments passed either before or after the %c, so we need to
-  // figure out the correct index to insert the CSS into
-  var index = 0;
-  var lastC = 0;
-  args[0].replace(/%[a-z%]/g, function(match) {
-    if ('%%' === match) return;
-    index++;
-    if ('%c' === match) {
-      // we only are interested in the *last* %c
-      // (the user may have provided their own)
-      lastC = index;
-    }
-  });
-
-  args.splice(lastC, 0, c);
-  return args;
-}
-
-/**
- * Invokes `console.log()` when available.
- * No-op when `console.log` is not a "function".
- *
- * @api public
- */
-
-function log() {
-  // this hackery is required for IE8/9, where
-  // the `console.log` function doesn't have 'apply'
-  return 'object' === typeof console
-    && console.log
-    && Function.prototype.apply.call(console.log, console, arguments);
-}
-
-/**
- * Save `namespaces`.
- *
- * @param {String} namespaces
- * @api private
- */
-
-function save(namespaces) {
-  try {
-    if (null == namespaces) {
-      exports.storage.removeItem('debug');
-    } else {
-      exports.storage.debug = namespaces;
-    }
-  } catch(e) {}
-}
-
-/**
- * Load `namespaces`.
- *
- * @return {String} returns the previously persisted debug modes
- * @api private
- */
-
-function load() {
-  var r;
-  try {
-    r = exports.storage.debug;
-  } catch(e) {}
-  return r;
-}
-
-/**
- * Enable namespaces listed in `localStorage.debug` initially.
- */
-
-exports.enable(load());
-
-/**
- * Localstorage attempts to return the localstorage.
- *
- * This is necessary because safari throws
- * when a user disables cookies/localstorage
- * and you attempt to access it.
- *
- * @return {LocalStorage}
- * @api private
- */
-
-function localstorage(){
-  try {
-    return window.localStorage;
-  } catch (e) {}
-}
-
-}, {"./debug":60}],
-60: [function(require, module, exports) {
-
-/**
- * This is the common logic for both the Node.js and web browser
- * implementations of `debug()`.
- *
- * Expose `debug()` as the module.
- */
-
-exports = module.exports = debug;
-exports.coerce = coerce;
-exports.disable = disable;
-exports.enable = enable;
-exports.enabled = enabled;
-exports.humanize = require('ms');
-
-/**
- * The currently active debug mode names, and names to skip.
- */
-
-exports.names = [];
-exports.skips = [];
-
-/**
- * Map of special "%n" handling functions, for the debug "format" argument.
- *
- * Valid key names are a single, lowercased letter, i.e. "n".
- */
-
-exports.formatters = {};
-
-/**
- * Previously assigned color.
- */
-
-var prevColor = 0;
-
-/**
- * Previous log timestamp.
- */
-
-var prevTime;
-
-/**
- * Select a color.
- *
- * @return {Number}
- * @api private
- */
-
-function selectColor() {
-  return exports.colors[prevColor++ % exports.colors.length];
-}
-
-/**
- * Create a debugger with the given `namespace`.
- *
- * @param {String} namespace
- * @return {Function}
- * @api public
- */
-
-function debug(namespace) {
-
-  // define the `disabled` version
-  function disabled() {
-  }
-  disabled.enabled = false;
-
-  // define the `enabled` version
-  function enabled() {
-
-    var self = enabled;
-
-    // set `diff` timestamp
-    var curr = +new Date();
-    var ms = curr - (prevTime || curr);
-    self.diff = ms;
-    self.prev = prevTime;
-    self.curr = curr;
-    prevTime = curr;
-
-    // add the `color` if not set
-    if (null == self.useColors) self.useColors = exports.useColors();
-    if (null == self.color && self.useColors) self.color = selectColor();
-
-    var args = Array.prototype.slice.call(arguments);
-
-    args[0] = exports.coerce(args[0]);
-
-    if ('string' !== typeof args[0]) {
-      // anything else let's inspect with %o
-      args = ['%o'].concat(args);
-    }
-
-    // apply any `formatters` transformations
-    var index = 0;
-    args[0] = args[0].replace(/%([a-z%])/g, function(match, format) {
-      // if we encounter an escaped % then don't increase the array index
-      if (match === '%%') return match;
-      index++;
-      var formatter = exports.formatters[format];
-      if ('function' === typeof formatter) {
-        var val = args[index];
-        match = formatter.call(self, val);
-
-        // now we need to remove `args[index]` since it's inlined in the `format`
-        args.splice(index, 1);
-        index--;
-      }
-      return match;
-    });
-
-    if ('function' === typeof exports.formatArgs) {
-      args = exports.formatArgs.apply(self, args);
-    }
-    var logFn = enabled.log || exports.log || console.log.bind(console);
-    logFn.apply(self, args);
-  }
-  enabled.enabled = true;
-
-  var fn = exports.enabled(namespace) ? enabled : disabled;
-
-  fn.namespace = namespace;
-
-  return fn;
-}
-
-/**
- * Enables a debug mode by namespaces. This can include modes
- * separated by a colon and wildcards.
- *
- * @param {String} namespaces
- * @api public
- */
-
-function enable(namespaces) {
-  exports.save(namespaces);
-
-  var split = (namespaces || '').split(/[\s,]+/);
-  var len = split.length;
-
-  for (var i = 0; i < len; i++) {
-    if (!split[i]) continue; // ignore empty strings
-    namespaces = split[i].replace(/\*/g, '.*?');
-    if (namespaces[0] === '-') {
-      exports.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
-    } else {
-      exports.names.push(new RegExp('^' + namespaces + '$'));
-    }
-  }
-}
-
-/**
- * Disable debug output.
- *
- * @api public
- */
-
-function disable() {
-  exports.enable('');
-}
-
-/**
- * Returns true if the given mode name is enabled, false otherwise.
- *
- * @param {String} name
- * @return {Boolean}
- * @api public
- */
-
-function enabled(name) {
-  var i, len;
-  for (i = 0, len = exports.skips.length; i < len; i++) {
-    if (exports.skips[i].test(name)) {
-      return false;
-    }
-  }
-  for (i = 0, len = exports.names.length; i < len; i++) {
-    if (exports.names[i].test(name)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Coerce `val`.
- *
- * @param {Mixed} val
- * @return {Mixed}
- * @api private
- */
-
-function coerce(val) {
-  if (val instanceof Error) return val.stack || val.message;
-  return val;
-}
-
-}, {"ms":61}],
-61: [function(require, module, exports) {
-/**
- * Helpers.
- */
-
-var s = 1000;
-var m = s * 60;
-var h = m * 60;
-var d = h * 24;
-var y = d * 365.25;
-
-/**
- * Parse or format the given `val`.
- *
- * Options:
- *
- *  - `long` verbose formatting [false]
- *
- * @param {String|Number} val
- * @param {Object} options
- * @return {String|Number}
- * @api public
- */
-
-module.exports = function(val, options){
-  options = options || {};
-  if ('string' == typeof val) return parse(val);
-  return options.long
-    ? long(val)
-    : short(val);
-};
-
-/**
- * Parse the given `str` and return milliseconds.
- *
- * @param {String} str
- * @return {Number}
- * @api private
- */
-
-function parse(str) {
-  str = '' + str;
-  if (str.length > 10000) return;
-  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(str);
-  if (!match) return;
-  var n = parseFloat(match[1]);
-  var type = (match[2] || 'ms').toLowerCase();
-  switch (type) {
-    case 'years':
-    case 'year':
-    case 'yrs':
-    case 'yr':
-    case 'y':
-      return n * y;
-    case 'days':
-    case 'day':
-    case 'd':
-      return n * d;
-    case 'hours':
-    case 'hour':
-    case 'hrs':
-    case 'hr':
-    case 'h':
-      return n * h;
-    case 'minutes':
-    case 'minute':
-    case 'mins':
-    case 'min':
-    case 'm':
-      return n * m;
-    case 'seconds':
-    case 'second':
-    case 'secs':
-    case 'sec':
-    case 's':
-      return n * s;
-    case 'milliseconds':
-    case 'millisecond':
-    case 'msecs':
-    case 'msec':
-    case 'ms':
-      return n;
-  }
-}
-
-/**
- * Short format for `ms`.
- *
- * @param {Number} ms
- * @return {String}
- * @api private
- */
-
-function short(ms) {
-  if (ms >= d) return Math.round(ms / d) + 'd';
-  if (ms >= h) return Math.round(ms / h) + 'h';
-  if (ms >= m) return Math.round(ms / m) + 'm';
-  if (ms >= s) return Math.round(ms / s) + 's';
-  return ms + 'ms';
-}
-
-/**
- * Long format for `ms`.
- *
- * @param {Number} ms
- * @return {String}
- * @api private
- */
-
-function long(ms) {
-  return plural(ms, d, 'day')
-    || plural(ms, h, 'hour')
-    || plural(ms, m, 'minute')
-    || plural(ms, s, 'second')
-    || ms + ' ms';
-}
-
-/**
- * Pluralization helper.
- */
-
-function plural(ms, n, name) {
-  if (ms < n) return;
-  if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
-  return Math.ceil(ms / n) + ' ' + name + 's';
-}
-
-}, {}],
+}, {"debug":13}],
 13: [function(require, module, exports) {
 if ('undefined' == typeof window) {
   module.exports = require('./lib/debug');
@@ -4193,8 +3706,8 @@ if ('undefined' == typeof window) {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":62,"./debug":63}],
-62: [function(require, module, exports) {
+}, {"./lib/debug":59,"./debug":60}],
+59: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -4344,7 +3857,7 @@ function coerce(val) {
 }
 
 }, {}],
-63: [function(require, module, exports) {
+60: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -4523,8 +4036,8 @@ module.exports = parse && stringify
   ? JSON
   : require('json-fallback');
 
-}, {"json-fallback":64}],
-64: [function(require, module, exports) {
+}, {"json-fallback":61}],
+61: [function(require, module, exports) {
 /*
     json2.js
     2014-02-04
@@ -5118,8 +4631,8 @@ domain.levels = function(url){
   return levels;
 };
 
-}, {"url":65,"cookie":66}],
-65: [function(require, module, exports) {
+}, {"url":62,"cookie":63}],
+62: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -5204,7 +4717,7 @@ function port (protocol){
 }
 
 }, {}],
-66: [function(require, module, exports) {
+63: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -5397,8 +4910,8 @@ module.exports = bind.all(new Group());
 
 module.exports.Group = Group;
 
-}, {"./entity":67,"bind":9,"debug":13,"inherit":68}],
-67: [function(require, module, exports) {
+}, {"./entity":64,"bind":9,"debug":13,"inherit":65}],
+64: [function(require, module, exports) {
 
 var clone = require('clone');
 var cookie = require('./cookie');
@@ -5637,8 +5150,8 @@ Entity.prototype.load = function() {
 };
 
 
-}, {"clone":11,"./cookie":12,"debug":13,"defaults":14,"extend":69,"./memory":19,"./store":26,"isodate-traverse":36}],
-69: [function(require, module, exports) {
+}, {"clone":11,"./cookie":12,"debug":13,"defaults":14,"extend":66,"./memory":19,"./store":26,"isodate-traverse":36}],
+66: [function(require, module, exports) {
 
 module.exports = function extend (object) {
     // Takes an unlimited number of extenders.
@@ -5811,8 +5324,8 @@ module.exports = bind.all(new Store());
 
 module.exports.Store = Store;
 
-}, {"bind":9,"defaults":14,"store.js":70}],
-70: [function(require, module, exports) {
+}, {"bind":9,"defaults":14,"store.js":67}],
+67: [function(require, module, exports) {
 var json             = require('json')
   , store            = {}
   , win              = window
@@ -5965,7 +5478,7 @@ store.enabled = !store.disabled
 
 module.exports = store;
 }, {"json":57}],
-68: [function(require, module, exports) {
+65: [function(require, module, exports) {
 
 module.exports = function(a, b){
   var fn = function(){};
@@ -6245,8 +5758,8 @@ function normalize(msg, list){
   }
 }
 
-}, {"debug":13,"defaults":14,"each":4,"includes":71,"is":16,"component/map":72}],
-71: [function(require, module, exports) {
+}, {"debug":13,"defaults":14,"each":4,"includes":68,"is":16,"component/map":69}],
+68: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -6336,8 +5849,8 @@ var includes = function includes(searchElement, collection) {
 
 module.exports = includes;
 
-}, {"each":73}],
-73: [function(require, module, exports) {
+}, {"each":70}],
+70: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -6479,8 +5992,8 @@ var each = function each(iterator, collection) {
 
 module.exports = each;
 
-}, {"keys":74}],
-74: [function(require, module, exports) {
+}, {"keys":71}],
+71: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -6660,7 +6173,7 @@ module.exports = function keys(source) {
 };
 
 }, {}],
-72: [function(require, module, exports) {
+69: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -6685,8 +6198,8 @@ module.exports = function(arr, fn){
   }
   return ret;
 };
-}, {"to-function":75}],
-75: [function(require, module, exports) {
+}, {"to-function":72}],
+72: [function(require, module, exports) {
 
 /**
  * Module Dependencies
@@ -6840,8 +6353,8 @@ function stripNested (prop, str, val) {
   });
 }
 
-}, {"props":76,"component-props":76}],
-76: [function(require, module, exports) {
+}, {"props":73,"component-props":73}],
+73: [function(require, module, exports) {
 /**
  * Global Names
  */
@@ -7035,8 +6548,8 @@ function canonicalUrl(search) {
 
 module.exports = pageDefaults;
 
-}, {"canonical":77,"includes":71,"url":78}],
-77: [function(require, module, exports) {
+}, {"canonical":74,"includes":68,"url":75}],
+74: [function(require, module, exports) {
 module.exports = function canonical () {
   var tags = document.getElementsByTagName('link');
   for (var i = 0, tag; tag = tags[i]; i++) {
@@ -7044,7 +6557,7 @@ module.exports = function canonical () {
   }
 };
 }, {}],
-78: [function(require, module, exports) {
+75: [function(require, module, exports) {
 
 /**
  * Parse the given `url`.
@@ -7481,8 +6994,8 @@ module.exports = bind.all(new User());
 
 module.exports.User = User;
 
-}, {"./entity":67,"bind":9,"./cookie":12,"debug":13,"inherit":68,"cookie":56,"uuid":79}],
-79: [function(require, module, exports) {
+}, {"./entity":64,"bind":9,"./cookie":12,"debug":13,"inherit":65,"cookie":56,"uuid":76}],
+76: [function(require, module, exports) {
 
 /**
  * Taken straight from jed's gist: https://gist.github.com/982883
@@ -7517,11 +7030,11 @@ module.exports = function uuid(a){
 'use strict';
 
 module.exports = {
-  'attribution': require('attribution/analytics.js-integration-attribution@0.0.4')
+  'attribution': require('attribution/analytics.js-integration-attribution@0.0.5')
 };
 
-}, {"attribution/analytics.js-integration-attribution@0.0.4":80}],
-80: [function(require, module, exports) {
+}, {"attribution/analytics.js-integration-attribution@0.0.5":77}],
+77: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7538,6 +7051,7 @@ var send = require('yields/send-json');
 var topDomain = require('top-domain');
 var uuid = require('uuid');
 var encode = require('ForbesLindesay/base64-encode');
+var cors = require('has-cors');
 
 /**
  * Cookie options
@@ -7693,26 +7207,22 @@ Attribution.prototype.normalize = function(msg) {
 Attribution.prototype.send = function(path, msg, fn) {
   var url = scheme() + '//track.attributionapp.com' + path;
 
-  var username = this.options.project || window.Attribution.projectId;
-  var password = "";
-  var basicAuth = 'Basic ' + encode(username + ":" + password);
+  var projectId = this.options.project || window.Attribution.projectId;
 
-  var headers = {
-    'Content-Type': 'text/plain',
-    'Authorization': basicAuth
-  };
+  // If we're POSTing, let's send the project_id in the params
+  // only on POST though, or else we'll get two question marks
+  if(cors)
+    url += "?project_id=" + projectId;
 
-  // No headers on JSONP so put the project_id in the msg
-  msg.project_id = username;
+  // If we're JSONPing, let's send it in the encoded params
+  msg.project_id = projectId;
 
   fn = fn || noop;
   var self = this;
 
-  // msg
   msg = this.normalize(msg);
 
-  // send
-  send(url, msg, headers, function(err, res) {
+  send(url, msg, function(err, res) {
     self.debug('sent %O, received %O', msg, arguments);
     if (err) return fn(err);
     res.url = url;
@@ -7767,8 +7277,8 @@ function scheme() {
 
 function noop() {}
 
-}, {"clone":11,"cookie":56,"extend":69,"segmentio/analytics.js-integration@1.0.1":81,"segmentio/json@1.0.0":57,"store":82,"segmentio/protocol":83,"yields/send-json":84,"top-domain":85,"uuid":79,"ForbesLindesay/base64-encode":86}],
-81: [function(require, module, exports) {
+}, {"clone":11,"cookie":56,"extend":66,"segmentio/analytics.js-integration@1.0.1":78,"segmentio/json@1.0.0":57,"store":79,"segmentio/protocol":80,"yields/send-json":81,"top-domain":82,"uuid":76,"ForbesLindesay/base64-encode":83,"has-cors":84}],
+78: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -7832,8 +7342,8 @@ function createIntegration(name){
 
 module.exports = createIntegration;
 
-}, {"bind":87,"clone":11,"debug":88,"defaults":14,"extend":89,"slug":90,"./protos":91,"./statics":92}],
-87: [function(require, module, exports) {
+}, {"bind":85,"clone":11,"debug":86,"defaults":14,"extend":87,"slug":88,"./protos":89,"./statics":90}],
+85: [function(require, module, exports) {
 
 var bind = require('bind')
   , bindAll = require('bind-all');
@@ -7875,15 +7385,15 @@ function bindMethods (obj, methods) {
   return obj;
 }
 }, {"bind":53,"bind-all":54}],
-88: [function(require, module, exports) {
+86: [function(require, module, exports) {
 if ('undefined' == typeof window) {
   module.exports = require('./lib/debug');
 } else {
   module.exports = require('./debug');
 }
 
-}, {"./lib/debug":93,"./debug":94}],
-93: [function(require, module, exports) {
+}, {"./lib/debug":91,"./debug":92}],
+91: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -8033,7 +7543,7 @@ function coerce(val) {
 }
 
 }, {}],
-94: [function(require, module, exports) {
+92: [function(require, module, exports) {
 
 /**
  * Expose `debug()` as the module.
@@ -8173,7 +7683,7 @@ try {
 } catch(e){}
 
 }, {}],
-89: [function(require, module, exports) {
+87: [function(require, module, exports) {
 
 module.exports = function extend (object) {
     // Takes an unlimited number of extenders.
@@ -8190,7 +7700,7 @@ module.exports = function extend (object) {
     return object;
 };
 }, {}],
-90: [function(require, module, exports) {
+88: [function(require, module, exports) {
 
 /**
  * Generate a slug from the given `str`.
@@ -8216,7 +7726,7 @@ module.exports = function (str, options) {
 };
 
 }, {}],
-91: [function(require, module, exports) {
+89: [function(require, module, exports) {
 /* global setInterval:true setTimeout:true */
 
 /**
@@ -8703,8 +8213,8 @@ function render(template, locals){
   }, {}, template.attrs);
 }
 
-}, {"emitter":6,"after":8,"each":95,"analytics-events":96,"fmt":97,"foldl":98,"load-iframe":99,"load-script":100,"to-no-case":101,"next-tick":55,"every":102,"is":103}],
-95: [function(require, module, exports) {
+}, {"emitter":6,"after":8,"each":93,"analytics-events":94,"fmt":95,"foldl":96,"load-iframe":97,"load-script":98,"to-no-case":99,"next-tick":55,"every":100,"is":101}],
+93: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -8795,8 +8305,8 @@ function array(obj, fn, ctx) {
   }
 }
 
-}, {"type":104,"component-type":104,"to-function":75}],
-104: [function(require, module, exports) {
+}, {"type":102,"component-type":102,"to-function":72}],
+102: [function(require, module, exports) {
 
 /**
  * toString ref.
@@ -8831,7 +8341,7 @@ module.exports = function(val){
 };
 
 }, {}],
-96: [function(require, module, exports) {
+94: [function(require, module, exports) {
 
 module.exports = {
   removedProduct: /^[ _]?removed[ _]?product[ _]?$/i,
@@ -8851,7 +8361,7 @@ module.exports = {
 };
 
 }, {}],
-97: [function(require, module, exports) {
+95: [function(require, module, exports) {
 
 /**
  * toString.
@@ -8896,7 +8406,7 @@ function fmt(str){
 }
 
 }, {}],
-98: [function(require, module, exports) {
+96: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -8954,8 +8464,8 @@ var foldl = function foldl(iterator, accumulator, collection) {
 
 module.exports = foldl;
 
-}, {"each":73}],
-99: [function(require, module, exports) {
+}, {"each":70}],
+97: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9017,8 +8527,8 @@ module.exports = function loadIframe(options, fn){
   // give it an ID or attributes.
   return iframe;
 };
-}, {"script-onload":105,"next-tick":55,"type":45}],
-105: [function(require, module, exports) {
+}, {"script-onload":103,"next-tick":55,"type":45}],
+103: [function(require, module, exports) {
 
 // https://github.com/thirdpartyjs/thirdpartyjs-code/blob/master/examples/templates/02/loading-files/index.html
 
@@ -9074,7 +8584,7 @@ function attach(el, fn){
 }
 
 }, {}],
-100: [function(require, module, exports) {
+98: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9135,8 +8645,8 @@ module.exports = function loadScript(options, fn){
   // give it an ID or attributes.
   return script;
 };
-}, {"script-onload":105,"next-tick":55,"type":45}],
-101: [function(require, module, exports) {
+}, {"script-onload":103,"next-tick":55,"type":45}],
+99: [function(require, module, exports) {
 
 /**
  * Expose `toNoCase`.
@@ -9209,7 +8719,7 @@ function uncamelize (string) {
   });
 }
 }, {}],
-102: [function(require, module, exports) {
+100: [function(require, module, exports) {
 'use strict';
 
 /**
@@ -9261,8 +8771,8 @@ var every = function every(predicate, collection) {
 
 module.exports = every;
 
-}, {"each":73}],
-103: [function(require, module, exports) {
+}, {"each":70}],
+101: [function(require, module, exports) {
 
 var isEmpty = require('is-empty');
 
@@ -9339,7 +8849,7 @@ function generate (type) {
   };
 }
 }, {"is-empty":44,"type":45,"component-type":45}],
-92: [function(require, module, exports) {
+90: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -9503,8 +9013,8 @@ function objectify(str) {
   };
 }
 
-}, {"emitter":6,"domify":106,"each":95,"includes":71}],
-106: [function(require, module, exports) {
+}, {"emitter":6,"domify":104,"each":93,"includes":68}],
+104: [function(require, module, exports) {
 
 /**
  * Expose `parse`.
@@ -9615,7 +9125,7 @@ function parse(html, doc) {
 }
 
 }, {}],
-82: [function(require, module, exports) {
+79: [function(require, module, exports) {
 
 /**
  * dependencies.
@@ -9710,8 +9220,8 @@ function all(){
   return ret;
 }
 
-}, {"unserialize":107,"each":95}],
-107: [function(require, module, exports) {
+}, {"unserialize":105,"each":93}],
+105: [function(require, module, exports) {
 
 /**
  * Unserialize the given "stringified" javascript.
@@ -9729,7 +9239,7 @@ module.exports = function(val){
 };
 
 }, {}],
-83: [function(require, module, exports) {
+80: [function(require, module, exports) {
 
 /**
  * Convenience alias
@@ -9812,7 +9322,7 @@ function set (protocol) {
 }
 
 }, {}],
-84: [function(require, module, exports) {
+81: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -9911,8 +9421,8 @@ function base64(url, obj, _, fn){
   });
 }
 
-}, {"base64-encode":108,"has-cors":109,"jsonp":110,"json":57}],
-108: [function(require, module, exports) {
+}, {"base64-encode":106,"has-cors":84,"jsonp":107,"json":57}],
+106: [function(require, module, exports) {
 var utf8Encode = require('utf8-encode');
 var keyStr = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
@@ -9949,8 +9459,8 @@ function encode(input) {
 
     return output;
 }
-}, {"utf8-encode":111}],
-111: [function(require, module, exports) {
+}, {"utf8-encode":108}],
+108: [function(require, module, exports) {
 module.exports = encode;
 
 function encode(string) {
@@ -9979,7 +9489,7 @@ function encode(string) {
     return utftext;
 }
 }, {}],
-109: [function(require, module, exports) {
+84: [function(require, module, exports) {
 
 /**
  * Module exports.
@@ -9999,7 +9509,7 @@ try {
 }
 
 }, {}],
-110: [function(require, module, exports) {
+107: [function(require, module, exports) {
 /**
  * Module dependencies
  */
@@ -10086,7 +9596,7 @@ function jsonp(url, opts, fn){
 }
 
 }, {"debug":13}],
-85: [function(require, module, exports) {
+82: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -10134,8 +9644,8 @@ function domain(url){
   return match ? match[0] : '';
 };
 
-}, {"url":65}],
-86: [function(require, module, exports) {
+}, {"url":62}],
+83: [function(require, module, exports) {
 var utf8Encode = require('utf8-encode');
 var keyStr = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
@@ -10172,7 +9682,7 @@ function encode(input) {
 
     return output;
 }
-}, {"utf8-encode":111}],
+}, {"utf8-encode":108}],
 5: [function(require, module, exports) {
 module.exports = {
   "name": "analytics",
