@@ -1,25 +1,61 @@
+##
+# Binaries
+##
+
+BROWSERIFY = node_modules/.bin/browserify
+ESLINT = node_modules/.bin/eslint
+UGLIFYJS = node_modules/.bin/uglifyjs
+
+##
+# Files
+##
 
 SRC = $(wildcard lib/*.js)
 
-node_modules: package.json
-	npm install
-	touch $@
+##
+# Tasks
+##
 
+# Install node modules.
+node_modules: package.json $(wildcard node_modules/*/package.json)
+	@npm install
+	@touch node_modules
+
+# Install dependencies.
+install: node_modules
+
+# Remove temporary files and build artifacts.
 clean:
 	rm -rf *.log analytics.js analytics.min.js
 
+# Remove temporary files, build artifacts, and vendor dependencies.
 distclean: clean
-	rm -rf components node_modules
+	rm -rf node_modules
+.PHONY: distclean
 
-analytics.js: node_modules $(SRC) package.json
-	./node_modules/.bin/duo --stdout --standalone analytics lib/index.js > $@
+# Build analytics.js.
+analytics.js: install $(SRC) package.json
+	@$(BROWSERIFY) lib/index.js --standalone analytics > analytics.js
 
 analytics.min.js: analytics.js
 	./node_modules/.bin/uglifyjs $< --output $@
 
 build: analytics.min.js
+.PHONY: build
 
+# Lint JavaScript source files.
 lint: node_modules
-	./node_modules/.bin/standard
+	@$(ESLINT) $(SRC)
+.PHONY: lint
 
-.PHONY: clean distclean build lint
+# Run browser unit tests in a browser.
+test-browser: install
+.PHONY: test-browser
+
+# Default test target.
+test: lint test-browser
+.PHONY: test
+.DEFAULT_GOAL = test
+
+test-sauce: test
+.PHONY: test-sauce
